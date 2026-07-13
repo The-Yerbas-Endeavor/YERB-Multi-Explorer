@@ -24,16 +24,16 @@
 
 <section class="stats-grid four" aria-label="Asset statistics">
   <article class="stat-card">
-    <span class="stat-label">Assets loaded</span>
+    <span class="stat-label">Registered assets</span>
     <strong class="stat-value"><?php echo number_format((int) $data['nrAssets']); ?></strong>
   </article>
   <article class="stat-card">
-    <span class="stat-label">IPFS enabled</span>
-    <strong class="stat-value"><?php echo number_format((int) $data['ipfsEnabled']); ?></strong>
+    <span class="stat-label">Current block</span>
+    <strong class="stat-value"><?php echo $data['blockHeight'] === null ? '—' : number_format((int) $data['blockHeight']); ?></strong>
   </article>
   <article class="stat-card">
-    <span class="stat-label">Reissuable</span>
-    <strong class="stat-value"><?php echo number_format((int) $data['reissuableAssets']); ?></strong>
+    <span class="stat-label">IPFS on this page</span>
+    <strong class="stat-value"><?php echo number_format((int) $data['ipfsEnabled']); ?></strong>
   </article>
   <article class="stat-card">
     <span class="stat-label">Network</span>
@@ -57,7 +57,7 @@
 <section class="panel">
   <div class="panel-head">
     <div><p class="panel-kicker">On-chain registry</p><h2>Assets</h2></div>
-    <span><?php echo number_format((int) $data['nrAssets']); ?> results</span>
+    <span>Showing <?php echo number_format((int) $data['resultStart']); ?>–<?php echo number_format((int) $data['resultEnd']); ?> of <?php echo number_format((int) $data['nrAssets']); ?></span>
   </div>
   <div class="table-wrap">
     <table class="asset-table rich-table">
@@ -94,4 +94,21 @@
       </tbody>
     </table>
   </div>
+
+  <?php if ((int) $data['totalPages'] > 1): ?>
+    <?php
+      $filterQuery = isset($_GET['f']) ? '&amp;f=' . rawurlencode($_GET['f']) : '';
+      $currentPage = (int) $data['currentPage'];
+      $totalPages = (int) $data['totalPages'];
+      $windowStart = max(1, $currentPage - 2);
+      $windowEnd = min($totalPages, $currentPage + 2);
+    ?>
+    <nav class="pagination" aria-label="Asset pages">
+      <a class="page-link<?php echo $currentPage <= 1 ? ' disabled' : ''; ?>" href="./?page=<?php echo max(1, $currentPage - 1) . $filterQuery; ?>">Previous</a>
+      <?php for ($page = $windowStart; $page <= $windowEnd; $page++): ?>
+        <a class="page-link<?php echo $page === $currentPage ? ' active' : ''; ?>" href="./?page=<?php echo $page . $filterQuery; ?>"><?php echo $page; ?></a>
+      <?php endfor; ?>
+      <a class="page-link<?php echo $currentPage >= $totalPages ? ' disabled' : ''; ?>" href="./?page=<?php echo min($totalPages, $currentPage + 1) . $filterQuery; ?>">Next</a>
+    </nav>
+  <?php endif; ?>
 </section>
