@@ -6,6 +6,7 @@
   <meta name="description" content="Explore assets issued on the Yerbas blockchain.">
   <title><?php echo htmlspecialchars($data['title'], ENT_QUOTES, 'UTF-8'); ?> | Yerbas Asset Explorer</title>
   <link rel="stylesheet" href="./theme/w3css/css/style.css">
+  <link rel="stylesheet" href="./theme/w3css/css/explorer.css">
 </head>
 <body>
   <header class="site-header">
@@ -25,7 +26,7 @@
         <a href="https://discord.gg/XGEp2cKSKF" target="_blank" rel="noopener">Discord</a>
       </nav>
 
-      <button class="theme-toggle" type="button" id="themeToggle" aria-label="Toggle dark mode">◐</button>
+      <button class="theme-toggle" type="button" id="themeToggle" aria-label="Toggle light and dark mode">◐</button>
     </div>
   </header>
 
