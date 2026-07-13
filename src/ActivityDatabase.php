@@ -81,7 +81,7 @@ class ActivityDatabase
         }
     }
 
-    public function recent($limit = 25, $asset = '', $type = '')
+    public function recent($limit = 25, $asset = '', $type = '', $afterId = 0)
     {
         $where = array();
         $params = array();
@@ -93,14 +93,29 @@ class ActivityDatabase
             $where[] = 'event_type = :type';
             $params[':type'] = $type;
         }
+        if ((int) $afterId > 0) {
+            $where[] = 'id > :after_id';
+            $params[':after_id'] = (int) $afterId;
+        }
         $sql = 'SELECT * FROM asset_activity' . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . ' ORDER BY block_height DESC, id DESC LIMIT :limit';
         $statement = $this->pdo->prepare($sql);
         foreach ($params as $key => $value) {
-            $statement->bindValue($key, $value, PDO::PARAM_STR);
+            $statement->bindValue($key, $value, $key === ':after_id' ? PDO::PARAM_INT : PDO::PARAM_STR);
         }
         $statement->bindValue(':limit', max(1, min(200, (int) $limit)), PDO::PARAM_INT);
         $statement->execute();
         return $statement->fetchAll();
+    }
+
+    public function latestId()
+    {
+        return (int) $this->pdo->query('SELECT COALESCE(MAX(id), 0) FROM asset_activity')->fetchColumn();
+    }
+
+    public function latestBlock()
+    {
+        $row = $this->pdo->query('SELECT height, hash, block_time, tx_count, indexed_at FROM blocks ORDER BY height DESC LIMIT 1')->fetch();
+        return $row ?: null;
     }
 
     public function networkStats()
@@ -110,7 +125,8 @@ class ActivityDatabase
             COUNT(*) AS events_today,
             COALESCE(SUM(CASE WHEN event_type = "Issue" THEN 1 ELSE 0 END),0) AS issues_today,
             COALESCE(SUM(CASE WHEN event_type = "Transfer" THEN 1 ELSE 0 END),0) AS transfers_today,
-            COALESCE(SUM(CASE WHEN event_type = "Reissue" THEN 1 ELSE 0 END),0) AS reissues_today
+            COALESCE(SUM(CASE WHEN event_type = "Reissue" THEN 1 ELSE 0 END),0) AS reissues_today,
+            COUNT(DISTINCT asset_name) AS active_assets_today
             FROM asset_activity WHERE block_time >= :today');
         $statement->execute(array(':today' => $today));
         return $statement->fetch();
