@@ -1,95 +1,74 @@
- <!-- Header -->
-  <header class="w3-container" style="padding-top:22px">
-    <h5><b><i class="fa fa-dashboard"></i>Dashboard</b></h5>
-  </header>
+<section class="hero">
+  <div>
+    <p class="eyebrow">Yerbas blockchain</p>
+    <h1>Explore Yerbas assets</h1>
+    <p>Search issued assets, inspect metadata, and view holder balances directly from the Yerbas network.</p>
+  </div>
+  <div class="status-pill"><span class="status-dot"></span> Connected to Yerbas RPC</div>
+</section>
 
-  <div class="w3-row-padding w3-margin-bottom">
-    <div class="w3-quarter">
-      <div class="w3-container w3-red w3-padding-16">
-        <div class="w3-left"><i class="fa fa-file w3-xxxlarge"></i></div>
-        <div class="w3-right">
-          <h3><?php echo $data['nrAssets'];?></h3>
-        </div>
-        <div class="w3-clear"></div>
-        <h4>Assets</h4>
-      </div>
-    </div>
-    <div class="w3-quarter">
-      <div class="w3-container w3-blue w3-padding-16">
-        <div class="w3-left"><i class="fa fa-asterisk w3-xxxlarge"></i></div>
-        <div class="w3-right">
-          <h3><?php echo $data['ipfsEnabled'];?></h3>
-        </div>
-        <div class="w3-clear"></div>
-        <h4>IPFS Enabled</h4>
-      </div>
-    </div>
-    <div class="w3-quarter">
-      <div class="w3-container w3-teal w3-padding-16">
-        <div class="w3-left"><i class="fa fa-user w3-xxxlarge"></i></div>
-        <div class="w3-right">
-          <h3>na</h3>
-        </div>
-        <div class="w3-clear"></div>
-        <h4>Asset Holders</h4>
-      </div>
-    </div>
+<?php if (!empty($data['error'])): ?>
+  <div class="error-box"><?php echo $data['error']; ?></div>
+<?php endif; ?>
+
+<section class="stats-grid" aria-label="Asset statistics">
+  <article class="stat-card">
+    <span class="stat-label">Total assets</span>
+    <strong class="stat-value"><?php echo number_format((int)$data['nrAssets']); ?></strong>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">IPFS enabled</span>
+    <strong class="stat-value"><?php echo number_format((int)$data['ipfsEnabled']); ?></strong>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Network</span>
+    <strong class="stat-value">YERB</strong>
+  </article>
+</section>
+
+<section class="panel toolbar" aria-label="Asset search and filters">
+  <div class="search-wrap">
+    <input class="search-input" id="assetSearch" type="search" placeholder="Search loaded assets…" autocomplete="off" aria-label="Search assets">
   </div>
-  <div class="w3-panel">
-  	<div class="w3-threequarter">
-	<!--<form action="" method="post">
-  		<input class="w3-input w3-border w3-round" type="text" value="" name="q" id="q">
-	</form>-->
-	</div>
+  <div class="alphabet" aria-label="Filter assets by first character">
+    <a href="./"<?php echo !isset($_GET['f']) ? ' class="active"' : ''; ?>>All</a>
+    <?php
+      $alphabet = array('0..9','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z');
+      foreach ($alphabet as $letter):
+        $active = isset($_GET['f']) && $_GET['f'] === $letter;
+    ?>
+      <a href="./?f=<?php echo urlencode($letter); ?>"<?php echo $active ? ' class="active"' : ''; ?>><?php echo htmlspecialchars($letter, ENT_QUOTES, 'UTF-8'); ?></a>
+    <?php endforeach; ?>
   </div>
-  <div class="w3-panel">
-  	<div class="w3-bar">
-	  <a href="./" class="w3-button  w3-tiny w3-grey">ALL</a>
-	  <?php
-	  	$alphabet = array("0..9","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z");
-		foreach($alphabet as $letter)
-		{
-			if(isset($_GET['f']) && $letter == $_GET['f'])
-			{
-	  ?>
-				<a href="./?f=<?php echo $letter;?>" class="w3-button w3-tiny w3-green"><?php echo $letter;?></a>
-	  		<?php
-			}else{
-			?>
-				<a href="./?f=<?php echo $letter;?>" class="w3-button w3-tiny"><?php echo $letter;?></a>
-			<?php
-			}
-			?>
-	  <?php
-	  }
-	  ?>
-	</div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Assets</h2>
+    <span><?php echo number_format((int)$data['nrAssets']); ?> found</span>
   </div>
-  <div class="w3-panel">
-    <div class="w3-row-padding">
-      <div class="w3-container w3-threequarter">
-        <h5>Assets on the Yerbas Blockchain</h5>
-        <table class="w3-table w3-striped w3-white w3-responsive">
-		<?php
-			if($data['assetsList'])
-			foreach($data['assetsList'] as $asset){
-		?>
-			<tr>
-				<td><i class="fa fa-file-prescription w3-text-blue w3-large"></i></td>
-				<td><a href='./?cmd=viewasset&id=<?php echo $asset['id'];?>'><?php echo $asset['name'];?></a></td>
-				<td>
-					<?php if($asset['ipfs']){?>
-					<em>(IPFS !)</em><br>
-					<?php
-					}
-					?>
-				</td>
-		  </tr>
-		<?php
-			}
-		?>
-        </table>
-      </div>
-    </div>
+  <div class="table-wrap">
+    <table class="asset-table">
+      <thead>
+        <tr>
+          <th>Asset name</th>
+          <th>Metadata</th>
+          <th>Network</th>
+        </tr>
+      </thead>
+      <tbody>
+      <?php if (!empty($data['assetsList'])): ?>
+        <?php foreach ($data['assetsList'] as $asset): ?>
+          <tr data-asset-row data-asset-name="<?php echo htmlspecialchars(strtolower($asset['name']), ENT_QUOTES, 'UTF-8'); ?>">
+            <td><a class="asset-name" href="./?cmd=viewasset&amp;id=<?php echo urlencode($asset['id']); ?>"><?php echo htmlspecialchars($asset['name'], ENT_QUOTES, 'UTF-8'); ?></a></td>
+            <td><?php if ($asset['ipfs']): ?><span class="badge green">IPFS</span><?php else: ?><span class="badge">On-chain</span><?php endif; ?></td>
+            <td><span class="badge">Yerbas</span></td>
+          </tr>
+        <?php endforeach; ?>
+      <?php else: ?>
+        <tr><td colspan="3" class="empty-state">No assets were returned by the Yerbas node.</td></tr>
+      <?php endif; ?>
+      </tbody>
+    </table>
   </div>
-  <hr>
+</section>
