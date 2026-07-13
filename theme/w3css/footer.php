@@ -20,21 +20,18 @@
       var root = document.documentElement;
       var button = document.getElementById('themeToggle');
       var savedTheme = localStorage.getItem('yerbas-theme');
+      var initialTheme = savedTheme || 'dark';
 
-      if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        root.setAttribute('data-theme', 'dark');
-      }
+      root.setAttribute('data-theme', initialTheme);
 
       if (button) {
+        button.textContent = initialTheme === 'dark' ? '☀' : '☾';
         button.addEventListener('click', function () {
-          var isDark = root.getAttribute('data-theme') === 'dark';
-          if (isDark) {
-            root.removeAttribute('data-theme');
-            localStorage.setItem('yerbas-theme', 'light');
-          } else {
-            root.setAttribute('data-theme', 'dark');
-            localStorage.setItem('yerbas-theme', 'dark');
-          }
+          var currentTheme = root.getAttribute('data-theme') || 'dark';
+          var nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+          root.setAttribute('data-theme', nextTheme);
+          localStorage.setItem('yerbas-theme', nextTheme);
+          button.textContent = nextTheme === 'dark' ? '☀' : '☾';
         });
       }
 
