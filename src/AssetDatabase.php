@@ -37,6 +37,7 @@ class AssetDatabase
         );
         $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(type)');
         $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_assets_updated_at ON assets(updated_at DESC)');
+        $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_assets_name_nocase ON assets(name COLLATE NOCASE)');
         $this->pdo->exec(
             'CREATE TABLE IF NOT EXISTS sync_state (
                 key TEXT PRIMARY KEY,
@@ -77,6 +78,7 @@ class AssetDatabase
     {
         $this->pdo->beginTransaction();
         try {
+            $this->pdo->exec('DROP TABLE IF EXISTS current_assets');
             $this->pdo->exec('CREATE TEMP TABLE current_assets (name TEXT PRIMARY KEY)');
             $insert = $this->pdo->prepare('INSERT OR IGNORE INTO current_assets(name) VALUES (?)');
             foreach ($assetNames as $name) {
@@ -86,7 +88,9 @@ class AssetDatabase
             $this->pdo->exec('DROP TABLE current_assets');
             $this->pdo->commit();
         } catch (Exception $exception) {
-            $this->pdo->rollBack();
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
             throw $exception;
         }
     }
@@ -110,7 +114,12 @@ class AssetDatabase
         return $state;
     }
 
-    public function listAssets($query, $type, $page, $perPage)
+    public function isReady()
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM assets')->fetchColumn() > 0;
+    }
+
+    public function listAssets($query, $type, $page, $perPage, $prefix = '')
     {
         $where = array();
         $params = array();
@@ -121,6 +130,14 @@ class AssetDatabase
         if ($type !== '') {
             $where[] = 'type = :type';
             $params[':type'] = $type;
+        }
+        if ($prefix !== '') {
+            if ($prefix === '0..9') {
+                $where[] = 'substr(name, 1, 1) BETWEEN "0" AND "9"';
+            } else {
+                $where[] = 'name LIKE :prefix ESCAPE "\\"';
+                $params[':prefix'] = str_replace(array('\\', '%', '_'), array('\\\\', '\\%', '\\_'), $prefix) . '%';
+            }
         }
         $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
@@ -144,7 +161,7 @@ class AssetDatabase
 
     public function findAsset($name)
     {
-        $statement = $this->pdo->prepare('SELECT * FROM assets WHERE name = :name');
+        $statement = $this->pdo->prepare('SELECT * FROM assets WHERE name = :name COLLATE NOCASE');
         $statement->execute(array(':name' => $name));
         $result = $statement->fetch();
         return $result ?: null;
@@ -154,9 +171,10 @@ class AssetDatabase
     {
         return $this->pdo->query(
             'SELECT COUNT(*) AS total,
-                    SUM(has_ipfs) AS ipfs,
-                    SUM(reissuable) AS reissuable,
-                    SUM(CASE WHEN type = "Unique" THEN 1 ELSE 0 END) AS unique_assets
+                    COALESCE(SUM(has_ipfs), 0) AS ipfs,
+                    COALESCE(SUM(reissuable), 0) AS reissuable,
+                    COALESCE(SUM(CASE WHEN type = "Unique" THEN 1 ELSE 0 END), 0) AS unique_assets,
+                    COALESCE(SUM(holder_count), 0) AS holder_records
              FROM assets'
         )->fetch();
     }
