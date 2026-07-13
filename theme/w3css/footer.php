@@ -47,5 +47,6 @@
       }
     }());
   </script>
+  <script src="./theme/w3css/js/realtime.js?v=3" defer></script>
 </body>
 </html>
