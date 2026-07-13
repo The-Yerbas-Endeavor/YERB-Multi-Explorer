@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh Yerbas Asset Explorer activity every minute
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+Unit=yerbas-activity-sync.service
+
+[Install]
+WantedBy=timers.target
