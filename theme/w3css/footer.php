@@ -1,37 +1,51 @@
-      <!-- Footer -->
-    <footer class="w3-container w3-padding-16 w3-light-grey">
-		<h4>FOOTER</h4>
-		If you appreciate the quick coding effort, feel free to send some real YERBs to: yaDfcdCupB1T5YoVRjYr8fXCvB8U5AuNX8
-		<br>Disclaimer: Use at your own risk!
-		<br>The information displayed here comes from the Yerbas testnet blockchain. In no way it is related to I3CN, and as such I3CN is not responsible. Just so you know.
-		<p>Powered by <a href="https://www.w3schools.com/w3css/default.asp" target="_blank">w3.css</a> | Theme by RealBokito & <a href="https://www.w3schools.com/w3css/w3css_templates.asp" target="_blank">w3.css</a></p>
-	</footer>
-  <!-- End page content -->
-</div>
+    </div>
+  </main>
 
-<script>
-// Get the Sidebar
-var mySidebar = document.getElementById("mySidebar");
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <strong>Yerbas Asset Explorer</strong>
+        <p>Blockchain data is provided directly by a Yerbas node.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://yerbas.org/" target="_blank" rel="noopener">Website</a>
+        <a href="https://explorer.yerbas.org/" target="_blank" rel="noopener">Block Explorer</a>
+        <a href="https://github.com/The-Yerbas-Endeavor/Yerbas-Assets-Viewer" target="_blank" rel="noopener">Source</a>
+      </div>
+    </div>
+  </footer>
 
-// Get the DIV with overlay effect
-var overlayBg = document.getElementById("myOverlay");
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var button = document.getElementById('themeToggle');
+      var savedTheme = localStorage.getItem('yerbas-theme');
+      var initialTheme = savedTheme || 'dark';
 
-// Toggle between showing and hiding the sidebar, and add overlay effect
-function w3_open() {
-    if (mySidebar.style.display === 'block') {
-        mySidebar.style.display = 'none';
-        overlayBg.style.display = "none";
-    } else {
-        mySidebar.style.display = 'block';
-        overlayBg.style.display = "block";
-    }
-}
+      root.setAttribute('data-theme', initialTheme);
 
-// Close the sidebar with the close button
-function w3_close() {
-    mySidebar.style.display = "none";
-    overlayBg.style.display = "none";
-}
-</script>
+      if (button) {
+        button.textContent = initialTheme === 'dark' ? '☀' : '☾';
+        button.addEventListener('click', function () {
+          var currentTheme = root.getAttribute('data-theme') || 'dark';
+          var nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+          root.setAttribute('data-theme', nextTheme);
+          localStorage.setItem('yerbas-theme', nextTheme);
+          button.textContent = nextTheme === 'dark' ? '☀' : '☾';
+        });
+      }
+
+      var search = document.getElementById('assetSearch');
+      if (search) {
+        search.addEventListener('input', function () {
+          var query = search.value.toLowerCase().trim();
+          document.querySelectorAll('[data-asset-row]').forEach(function (row) {
+            var name = row.getAttribute('data-asset-name') || '';
+            row.hidden = query !== '' && name.indexOf(query) === -1;
+          });
+        });
+      }
+    }());
+  </script>
 </body>
 </html>

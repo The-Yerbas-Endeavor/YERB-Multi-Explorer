@@ -1,185 +1,214 @@
 <?php
-class yerbAssetsViewer{
-	private $cfg;
-	private $command;
+class yerbAssetsViewer
+{
+    private $cfg;
+    private $command;
 
-	public function __construct()
-	{
-		require_once("config.php");
-		$this->cfg = $cfg;
-		
-		//List of valid models
-		$valid_cmds = array("viewholder","viewasset", "listassets", "search");
-		
-		if(isset($_GET['cmd']) && in_array($_GET["cmd"],$valid_cmds))
-		{
-			$this->command = $_GET['cmd'];
-		}else{
-			$this->command = "listassets";
-		}
-	}
-	
-	public function run()
-	{
-		$command = $this->command;
-		$data = $this->$command();
-		
-		$data['title'] = "Yerbas Asset Viewer";
-		
-		include "theme/".$this->cfg['theme']."/header.php";
-		include "theme/".$this->cfg['theme']."/".$this->command.".php";
-		include "theme/".$this->cfg['theme']."/footer.php";
-	}
-	
-	private function listassets()
-	{	
-		include "profanityFilter.php";
-		
-		if(isset($_GET['f']) && !empty($_GET['f']))
-		{
-			if($_GET['f'] == "0..9")
-			{
-				
-				$results = array();
-				for($i=0;$i<10;$i++)
-				{
-					$temp = $this->getRPCresults("listassets", $i."*");
-					$results = array_merge($results, $temp);
-				}
-			}else{
-				$filter = $_GET['f']."*";
-				$results = $this->getRPCresults("listassets", $filter);
-			}
-		}else{
-			$results = $this->getRPCresults("listassets");
-		}
-				
-		if(empty($results)){
-			$data['error'] = "<br><br><br><strong>CONNECTION TO TESTNET NODE LOST</strong<br><br><br>";
-			
-			$data['nrAssets']= 0;
-			$data['ipfsEnabled'] = 0;
-			$data['assetsList'] = false;
-			return $data;
-		}
-		
-		sort($results);
-		$nrAssets = count($results);
-		$data['nrAssets']= $nrAssets;
-		$data['ipfsEnabled'] = 0;
-		
-		$data['assetsList'] = array();		
-		for($i=0;$i<$nrAssets;$i++)
-		{
-			$id = $results[$i];
-			
-			$name = profanityFilter($results[$i]);
-			$results[$i] = $name;
-			
-			$data['assetsList'][$i]['id'] = base64_encode($id);
-			$data['assetsList'][$i]['name'] = $results[$i];	
-				
-			$result = $this->getRPCresults("getassetdata", $id);
-			if($result['has_ipfs'] <> 0){
-				$data['assetsList'][$i]['ipfs'] = true;
-				$data['ipfsEnabled']++;
-			}else{
-				$data['assetsList'][$i]['ipfs'] = false;
-			}
-		}
-		
-		return $data;
-	}
-	
-	private function viewasset()
-	{
-		$id = base64_decode($_GET['id']);
-		$result = $this->getRPCresults("getassetdata", $id);		
-		
-		if(empty($result)){
-			$data['error'] = "<br><br><br><strong>CONNECTION TO TESTNET NODE LOST</strong<br><br><br>";
-			return $data;
-		}		
-		
-		$data['name'] = $result['name'];
-		$data['amount'] = $result['amount'];
-		$data['units'] = $result['units'];
-		$data['reissuable'] = $result['reissuable'];
-		if($result['has_ipfs'] <> 0){
-			$data['ipfs_hash'] = $result['ipfs_hash'];
-		}else{
-			$data['ipfs_hash'] = false;
-		}
-		
-		$result = $this->getRPCresults("listaddressesbyasset", $id."!");
-		$checkIssuerCount = count($result);
-		$data['issuer'] = '';
-		if($checkIssuerCount > 1){
-			$data['issuer'] .= "<br><strong>NOTE:</strong> Multiple issuers due to chainsplit(s).";
-		}else{
-			$data['issuer'] = key($result);
-		}
-		
-		$data['addresses'] = array();
-		$data['nrAssetHolders'] = 0;
-		$results = $this->getRPCresults("listaddressesbyasset",$id);
-		foreach($results as $key => $value){
-			$data['addresses'][$key] = $value;
-			$data['nrAssetHolders']++;
-		}
-		
-		return $data;
-	
-	}
-	
-	private function viewholder()
-	{
-		$id = $_GET['id'];
-		$result = $this->getRPCresults("listassetbalancesbyaddress", $id);
-		
-		if(empty($result)){
-			$data['error'] = "<br><br><br><strong>CONNECTION TO TESTNET NODE LOST</strong<br><br><br>";
-			return $data;
-		}
-		$data['id'] = $id;
-		$data['assets'] = array();
-		$data['totalAmount'] = 0;
-		foreach($result as $key => $value){
-			$data['assets'][$key] = $value;
-			$data['totalAmount'] += $value;
-		}
-		
-		return $data;
-	}
-	/*
-	In development. Not used due to some strange issues in the RPC responces.
-	*/
-	private function search(){
-		if(isset($_POST['q']) && !empty($_POST['q']))
-		{
-			$q = $_POST['q'];
-			if($this->getRPCresults("getassetdata", $q))
-			{
-				header('Location: ./?cmd=viewasset&id='.base64_encode($q));
-			}elseif($this->getRPCresults("listassetbalancesbyaddress", $q))
-			{
-				header('Location: ./?cmd=viewholder&id='.$q);
-			}else{
-				header('Location: ./');
-				exit();
-			}
-			exit();
-		}else{
-			header('Location: ./');
-			exit();
-		}
-	}
-	
-	private function getRPCresults($command, $param = '')
-	{
-		require_once("rpc.php");
-		$yerb = new Yerbas($this->cfg['rpcUsername'],$this->cfg['rpcPassword'],$this->cfg['rpcHostIP'],$this->cfg['rpcHostPort']);
-		return $yerb->$command($param);
-	}
+    public function __construct()
+    {
+        require 'config.php';
+        $this->cfg = $cfg;
+
+        $validCommands = array('viewholder', 'viewasset', 'listassets', 'search');
+        $requested = isset($_GET['cmd']) ? $_GET['cmd'] : 'listassets';
+        $this->command = in_array($requested, $validCommands, true) ? $requested : 'listassets';
+    }
+
+    public function run()
+    {
+        $command = $this->command;
+        $data = $this->$command();
+        $data['title'] = 'Yerbas Asset Explorer';
+
+        include 'theme/' . $this->cfg['theme'] . '/header.php';
+        include 'theme/' . $this->cfg['theme'] . '/' . $this->command . '.php';
+        include 'theme/' . $this->cfg['theme'] . '/footer.php';
+    }
+
+    private function listassets()
+    {
+        include 'profanityFilter.php';
+        $results = array();
+
+        if (!empty($_GET['f'])) {
+            if ($_GET['f'] === '0..9') {
+                for ($i = 0; $i < 10; $i++) {
+                    $batch = $this->getRPCresults('listassets', $i . '*');
+                    if (is_array($batch)) {
+                        $results = array_merge($results, $batch);
+                    }
+                }
+            } else {
+                $filter = strtoupper(substr((string) $_GET['f'], 0, 1)) . '*';
+                $results = $this->getRPCresults('listassets', $filter);
+            }
+        } else {
+            $results = $this->getRPCresults('listassets');
+        }
+
+        if (!is_array($results)) {
+            return array(
+                'error' => 'Unable to retrieve assets from the Yerbas node.',
+                'nrAssets' => 0,
+                'ipfsEnabled' => 0,
+                'reissuableAssets' => 0,
+                'assetsList' => array(),
+            );
+        }
+
+        sort($results, SORT_NATURAL | SORT_FLAG_CASE);
+        $data = array(
+            'nrAssets' => count($results),
+            'ipfsEnabled' => 0,
+            'reissuableAssets' => 0,
+            'assetsList' => array(),
+        );
+
+        foreach ($results as $id) {
+            $metadata = $this->getRPCresults('getassetdata', $id);
+            if (!is_array($metadata)) {
+                $metadata = array();
+            }
+
+            $hasIpfs = !empty($metadata['has_ipfs']);
+            $reissuable = !empty($metadata['reissuable']);
+            if ($hasIpfs) {
+                $data['ipfsEnabled']++;
+            }
+            if ($reissuable) {
+                $data['reissuableAssets']++;
+            }
+
+            $data['assetsList'][] = array(
+                'id' => base64_encode($id),
+                'name' => profanityFilter($id),
+                'rawName' => $id,
+                'amount' => isset($metadata['amount']) ? $metadata['amount'] : null,
+                'units' => isset($metadata['units']) ? (int) $metadata['units'] : null,
+                'reissuable' => $reissuable,
+                'ipfs' => $hasIpfs,
+                'type' => $this->inferAssetType($id),
+            );
+        }
+
+        return $data;
+    }
+
+    private function viewasset()
+    {
+        $encodedId = isset($_GET['id']) ? (string) $_GET['id'] : '';
+        $id = base64_decode($encodedId, true);
+        if ($id === false || $id === '') {
+            return array('error' => 'Invalid asset identifier.');
+        }
+
+        $result = $this->getRPCresults('getassetdata', $id);
+        if (!is_array($result)) {
+            return array('error' => 'Unable to retrieve this asset from the Yerbas node.');
+        }
+
+        $data = array(
+            'name' => isset($result['name']) ? $result['name'] : $id,
+            'amount' => isset($result['amount']) ? $result['amount'] : 0,
+            'units' => isset($result['units']) ? (int) $result['units'] : 0,
+            'reissuable' => !empty($result['reissuable']),
+            'ipfs_hash' => !empty($result['has_ipfs']) && !empty($result['ipfs_hash']) ? $result['ipfs_hash'] : false,
+            'type' => $this->inferAssetType($id),
+            'issuer' => '',
+            'addresses' => array(),
+            'nrAssetHolders' => 0,
+        );
+
+        $issuerResults = $this->getRPCresults('listaddressesbyasset', $id . '!');
+        if (is_array($issuerResults) && count($issuerResults) === 1) {
+            $data['issuer'] = key($issuerResults);
+        } elseif (is_array($issuerResults) && count($issuerResults) > 1) {
+            $data['issuer'] = 'Multiple issuer addresses detected';
+        }
+
+        $holders = $this->getRPCresults('listaddressesbyasset', $id);
+        if (is_array($holders)) {
+            arsort($holders, SORT_NUMERIC);
+            $data['addresses'] = $holders;
+            $data['nrAssetHolders'] = count($holders);
+        }
+
+        return $data;
+    }
+
+    private function viewholder()
+    {
+        $id = isset($_GET['id']) ? trim((string) $_GET['id']) : '';
+        if ($id === '') {
+            return array('error' => 'Invalid holder address.');
+        }
+
+        $result = $this->getRPCresults('listassetbalancesbyaddress', $id);
+        if (!is_array($result)) {
+            return array('error' => 'Unable to retrieve balances for this address.');
+        }
+
+        arsort($result, SORT_NUMERIC);
+        return array(
+            'id' => $id,
+            'assets' => $result,
+            'assetCount' => count($result),
+        );
+    }
+
+    private function search()
+    {
+        $query = isset($_POST['q']) ? trim((string) $_POST['q']) : '';
+        if ($query === '') {
+            header('Location: ./');
+            exit;
+        }
+
+        if (is_array($this->getRPCresults('getassetdata', $query))) {
+            header('Location: ./?cmd=viewasset&id=' . rawurlencode(base64_encode($query)));
+            exit;
+        }
+
+        if (is_array($this->getRPCresults('listassetbalancesbyaddress', $query))) {
+            header('Location: ./?cmd=viewholder&id=' . rawurlencode($query));
+            exit;
+        }
+
+        header('Location: ./?search=not-found');
+        exit;
+    }
+
+    private function inferAssetType($name)
+    {
+        if (substr($name, -1) === '!') {
+            return 'Owner';
+        }
+        if (strpos($name, '#') !== false) {
+            return 'Unique';
+        }
+        if (strpos($name, '/') !== false) {
+            return 'Sub-asset';
+        }
+        if (substr($name, 0, 1) === '$') {
+            return 'Restricted';
+        }
+        if (substr($name, 0, 1) === '#') {
+            return 'Qualifier';
+        }
+        return 'Main';
+    }
+
+    private function getRPCresults($command, $param = '')
+    {
+        require_once 'rpc.php';
+        $yerb = new Yerbas(
+            $this->cfg['rpcUsername'],
+            $this->cfg['rpcPassword'],
+            $this->cfg['rpcHostIP'],
+            $this->cfg['rpcHostPort']
+        );
+
+        return $param === '' ? $yerb->$command() : $yerb->$command($param);
+    }
 }
 ?>

@@ -1,48 +1,52 @@
- <!-- Header -->
-  <header class="w3-container" style="padding-top:22px">
-    <h5><b><i class="fa fa-dashboard"></i>Dashboard</b></h5>
-  </header>
-
-  <div class="w3-row-padding w3-margin-bottom">
-    <div class="w3-half">
-      <div class="w3-container w3-red w3-padding-16">
-        <div class="w3-left"><i class="fa fa-file w3-xxxlarge"></i></div>
-        <div class="w3-right">
-          <h3><?php echo $data['id'];?></h3>
-        </div>
-        <div class="w3-clear"></div>
-        <h4>Asset Holder Address</h4>
-      </div>
-    </div>
-    <div class="w3-quarter">
-      <div class="w3-container w3-blue w3-padding-16">
-        <div class="w3-left"><i class="fa fa-money-bill-alt w3-xxxlarge"></i></div>
-        <div class="w3-right">
-          <h3><?php echo $data['totalAmount'];?></h3>
-        </div>
-        <div class="w3-clear"></div>
-        <h4>Total Amount</h4>
-      </div>
-    </div>
+<section class="hero compact-hero">
+  <div>
+    <p class="eyebrow">Holder address</p>
+    <h1 class="address-title"><?php echo !empty($data['id']) ? htmlspecialchars($data['id'], ENT_QUOTES, 'UTF-8') : 'Address'; ?></h1>
+    <p>Current Yerbas asset balances held by this address.</p>
   </div>
-    
-  <div class="w3-container">
-    <h5>Asset(s):</h5>
-    <table class="w3-table w3-striped w3-bordered w3-border w3-hoverable w3-white w3-threequarter w3-responsive">
-	  <tr>
-        <th>Asset</th>
-        <th>Amount</th>
-      </tr>
-     <?php
-	foreach($data['assets'] as $asset => $value){
-	?>
-		<tr>
-			<td><a href='./?cmd=viewasset&id=<?php echo base64_encode($asset);?>'><?php echo $asset;?></a></td>
-			<td><?php echo $value;?></td>
-		</tr>
-	<?php
-	}
-	?>
+  <a class="status-pill" href="./">← Back to assets</a>
+</section>
+
+<?php if (!empty($data['error'])): ?>
+  <div class="error-box"><?php echo htmlspecialchars($data['error'], ENT_QUOTES, 'UTF-8'); ?></div>
+<?php else: ?>
+<section class="stats-grid two">
+  <article class="stat-card">
+    <span class="stat-label">Distinct assets</span>
+    <strong class="stat-value"><?php echo number_format((int) $data['assetCount']); ?></strong>
+  </article>
+  <article class="stat-card">
+    <span class="stat-label">Network</span>
+    <strong class="stat-value network-value">YERB</strong>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div><p class="panel-kicker">Portfolio</p><h2>Asset balances</h2></div>
+    <span><?php echo number_format((int) $data['assetCount']); ?> assets</span>
+  </div>
+  <div class="table-wrap">
+    <table class="asset-table">
+      <thead><tr><th>Asset</th><th>Balance</th></tr></thead>
+      <tbody>
+      <?php if (!empty($data['assets'])): ?>
+        <?php foreach ($data['assets'] as $asset => $value): ?>
+          <tr>
+            <td>
+              <a class="asset-name" href="./?cmd=viewasset&amp;id=<?php echo rawurlencode(base64_encode($asset)); ?>">
+                <span class="asset-token-icon"><?php echo htmlspecialchars(substr($asset, 0, 1), ENT_QUOTES, 'UTF-8'); ?></span>
+                <span><?php echo htmlspecialchars($asset, ENT_QUOTES, 'UTF-8'); ?></span>
+              </a>
+            </td>
+            <td class="numeric"><?php echo htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8'); ?></td>
+          </tr>
+        <?php endforeach; ?>
+      <?php else: ?>
+        <tr><td colspan="2" class="empty-state">No asset balances were returned for this address.</td></tr>
+      <?php endif; ?>
+      </tbody>
     </table>
   </div>
-  <hr>
+</section>
+<?php endif; ?>
