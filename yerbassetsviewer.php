@@ -3,11 +3,13 @@ class yerbAssetsViewer
 {
     private $cfg;
     private $command;
+    private $database;
 
     public function __construct()
     {
         require 'config.php';
         $this->cfg = $cfg;
+        $this->database = $this->loadDatabase();
 
         $validCommands = array('viewholder', 'viewasset', 'listassets', 'search');
         $requested = isset($_GET['cmd']) ? $_GET['cmd'] : 'listassets';
@@ -25,9 +27,102 @@ class yerbAssetsViewer
         include 'theme/' . $this->cfg['theme'] . '/footer.php';
     }
 
+    private function loadDatabase()
+    {
+        if (!extension_loaded('pdo_sqlite')) {
+            return null;
+        }
+
+        $path = isset($this->cfg['databasePath'])
+            ? $this->cfg['databasePath']
+            : __DIR__ . '/storage/assets.sqlite';
+
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            require_once __DIR__ . '/src/AssetDatabase.php';
+            $database = new AssetDatabase($path);
+            return $database->isReady() ? $database : null;
+        } catch (Exception $exception) {
+            error_log('Asset cache unavailable: ' . $exception->getMessage());
+            return null;
+        }
+    }
+
     private function listassets()
     {
         include 'profanityFilter.php';
+
+        if ($this->database) {
+            return $this->listAssetsFromCache();
+        }
+
+        return $this->listAssetsFromRpc();
+    }
+
+    private function listAssetsFromCache()
+    {
+        include_once 'profanityFilter.php';
+        $pageSize = isset($this->cfg['assetsPerPage']) ? max(10, min(200, (int) $this->cfg['assetsPerPage'])) : 50;
+        $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+        $prefix = !empty($_GET['f']) ? strtoupper((string) $_GET['f']) : '';
+        $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
+        $type = isset($_GET['type']) ? trim((string) $_GET['type']) : '';
+
+        $result = $this->database->listAssets($query, $type, $currentPage, $pageSize, $prefix);
+        $totalAssets = (int) $result['total'];
+        $totalPages = max(1, (int) ceil($totalAssets / $pageSize));
+        $currentPage = min($currentPage, $totalPages);
+
+        if ($currentPage > 1 && $currentPage > $totalPages) {
+            $currentPage = $totalPages;
+            $result = $this->database->listAssets($query, $type, $currentPage, $pageSize, $prefix);
+        }
+
+        $stats = $this->database->stats();
+        $state = $this->database->getState();
+        $offset = ($currentPage - 1) * $pageSize;
+        $assets = array();
+
+        foreach ($result['items'] as $row) {
+            $assets[] = array(
+                'id' => base64_encode($row['name']),
+                'name' => profanityFilter($row['name']),
+                'rawName' => $row['name'],
+                'amount' => $row['amount'],
+                'units' => $row['units'] === null ? null : (int) $row['units'],
+                'reissuable' => !empty($row['reissuable']),
+                'ipfs' => !empty($row['has_ipfs']),
+                'type' => $row['type'],
+                'holderCount' => $row['holder_count'] === null ? null : (int) $row['holder_count'],
+            );
+        }
+
+        return array(
+            'nrAssets' => (int) $stats['total'],
+            'filteredAssets' => $totalAssets,
+            'ipfsEnabled' => (int) $stats['ipfs'],
+            'reissuableAssets' => (int) $stats['reissuable'],
+            'assetsList' => $assets,
+            'blockHeight' => isset($state['block_height']) ? (int) $state['block_height'] : null,
+            'currentPage' => $currentPage,
+            'totalPages' => $totalPages,
+            'pageSize' => $pageSize,
+            'resultStart' => $totalAssets === 0 ? 0 : $offset + 1,
+            'resultEnd' => min($offset + $pageSize, $totalAssets),
+            'cacheEnabled' => true,
+            'cacheUpdatedAt' => isset($state['last_sync_at']) ? (int) $state['last_sync_at'] : null,
+            'cacheAge' => isset($state['last_sync_at']) ? max(0, time() - (int) $state['last_sync_at']) : null,
+            'searchQuery' => $query,
+            'selectedType' => $type,
+        );
+    }
+
+    private function listAssetsFromRpc()
+    {
+        include_once 'profanityFilter.php';
         $results = array();
 
         if (!empty($_GET['f'])) {
@@ -50,6 +145,7 @@ class yerbAssetsViewer
             return array(
                 'error' => 'Unable to retrieve assets from the Yerbas node.',
                 'nrAssets' => 0,
+                'filteredAssets' => 0,
                 'ipfsEnabled' => 0,
                 'reissuableAssets' => 0,
                 'assetsList' => array(),
@@ -57,6 +153,7 @@ class yerbAssetsViewer
                 'currentPage' => 1,
                 'totalPages' => 1,
                 'pageSize' => 50,
+                'cacheEnabled' => false,
             );
         }
 
@@ -72,6 +169,7 @@ class yerbAssetsViewer
 
         $data = array(
             'nrAssets' => $totalAssets,
+            'filteredAssets' => $totalAssets,
             'ipfsEnabled' => 0,
             'reissuableAssets' => 0,
             'assetsList' => array(),
@@ -81,6 +179,7 @@ class yerbAssetsViewer
             'pageSize' => $pageSize,
             'resultStart' => $totalAssets === 0 ? 0 : $offset + 1,
             'resultEnd' => min($offset + $pageSize, $totalAssets),
+            'cacheEnabled' => false,
         );
 
         foreach ($pageResults as $id) {
@@ -107,6 +206,7 @@ class yerbAssetsViewer
                 'reissuable' => $reissuable,
                 'ipfs' => $hasIpfs,
                 'type' => $this->inferAssetType($id),
+                'holderCount' => null,
             );
         }
 
@@ -121,9 +221,10 @@ class yerbAssetsViewer
             return array('error' => 'Invalid asset identifier.');
         }
 
-        $result = $this->getRPCresults('getassetdata', $id);
+        $cached = $this->database ? $this->database->findAsset($id) : null;
+        $result = $cached ?: $this->getRPCresults('getassetdata', $id);
         if (!is_array($result)) {
-            return array('error' => 'Unable to retrieve this asset from the Yerbas node.');
+            return array('error' => 'Unable to retrieve this asset.');
         }
 
         $data = array(
@@ -131,11 +232,12 @@ class yerbAssetsViewer
             'amount' => isset($result['amount']) ? $result['amount'] : 0,
             'units' => isset($result['units']) ? (int) $result['units'] : 0,
             'reissuable' => !empty($result['reissuable']),
-            'ipfs_hash' => !empty($result['has_ipfs']) && !empty($result['ipfs_hash']) ? $result['ipfs_hash'] : false,
-            'type' => $this->inferAssetType($id),
+            'ipfs_hash' => !empty($result['ipfs_hash']) ? $result['ipfs_hash'] : false,
+            'type' => isset($result['type']) ? $result['type'] : $this->inferAssetType($id),
             'issuer' => '',
             'addresses' => array(),
-            'nrAssetHolders' => 0,
+            'nrAssetHolders' => isset($result['holder_count']) ? (int) $result['holder_count'] : 0,
+            'cacheEnabled' => (bool) $cached,
         );
 
         $issuerResults = $this->getRPCresults('listaddressesbyasset', $id . '!');
@@ -183,6 +285,11 @@ class yerbAssetsViewer
             exit;
         }
 
+        if ($this->database && $this->database->findAsset($query)) {
+            header('Location: ./?cmd=viewasset&id=' . rawurlencode(base64_encode($query)));
+            exit;
+        }
+
         if (is_array($this->getRPCresults('getassetdata', $query))) {
             header('Location: ./?cmd=viewasset&id=' . rawurlencode(base64_encode($query)));
             exit;
@@ -193,7 +300,7 @@ class yerbAssetsViewer
             exit;
         }
 
-        header('Location: ./?search=not-found');
+        header('Location: ./?q=' . rawurlencode($query));
         exit;
     }
 
@@ -202,17 +309,17 @@ class yerbAssetsViewer
         if (substr($name, -1) === '!') {
             return 'Owner';
         }
-        if (strpos($name, '#') !== false) {
+        if (strpos($name, '#') !== false && substr($name, 0, 1) !== '#') {
             return 'Unique';
-        }
-        if (strpos($name, '/') !== false) {
-            return 'Sub-asset';
         }
         if (substr($name, 0, 1) === '$') {
             return 'Restricted';
         }
         if (substr($name, 0, 1) === '#') {
             return 'Qualifier';
+        }
+        if (strpos($name, '/') !== false) {
+            return 'Sub-asset';
         }
         return 'Main';
     }
