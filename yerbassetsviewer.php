@@ -53,18 +53,37 @@ class yerbAssetsViewer
                 'ipfsEnabled' => 0,
                 'reissuableAssets' => 0,
                 'assetsList' => array(),
+                'blockHeight' => null,
+                'currentPage' => 1,
+                'totalPages' => 1,
+                'pageSize' => 50,
             );
         }
 
         sort($results, SORT_NATURAL | SORT_FLAG_CASE);
+        $totalAssets = count($results);
+        $pageSize = isset($this->cfg['assetsPerPage']) ? max(10, min(200, (int) $this->cfg['assetsPerPage'])) : 50;
+        $totalPages = max(1, (int) ceil($totalAssets / $pageSize));
+        $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+        $currentPage = min($currentPage, $totalPages);
+        $offset = ($currentPage - 1) * $pageSize;
+        $pageResults = array_slice($results, $offset, $pageSize);
+        $blockHeight = $this->getRPCresults('getblockcount');
+
         $data = array(
-            'nrAssets' => count($results),
+            'nrAssets' => $totalAssets,
             'ipfsEnabled' => 0,
             'reissuableAssets' => 0,
             'assetsList' => array(),
+            'blockHeight' => is_numeric($blockHeight) ? (int) $blockHeight : null,
+            'currentPage' => $currentPage,
+            'totalPages' => $totalPages,
+            'pageSize' => $pageSize,
+            'resultStart' => $totalAssets === 0 ? 0 : $offset + 1,
+            'resultEnd' => min($offset + $pageSize, $totalAssets),
         );
 
-        foreach ($results as $id) {
+        foreach ($pageResults as $id) {
             $metadata = $this->getRPCresults('getassetdata', $id);
             if (!is_array($metadata)) {
                 $metadata = array();
