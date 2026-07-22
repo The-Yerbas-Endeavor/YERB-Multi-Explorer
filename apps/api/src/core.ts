@@ -19,8 +19,14 @@ const BlockSchema = new Schema({
   confirmations: Number,
   difficulty: Number,
   size: Number,
+  weight: Number,
+  version: Number,
+  nonce: Number,
+  chainwork: String,
   txCount: Number,
   txids: [String],
+  reward: Number,
+  fees: Number,
   raw: Schema.Types.Mixed
 }, { timestamps: true });
 
@@ -30,6 +36,9 @@ const TransactionSchema = new Schema({
   blockHash: { type: String, index: true },
   time: { type: Date, index: true },
   confirmations: Number,
+  size: Number,
+  virtualSize: Number,
+  lockTime: Number,
   valueIn: Number,
   valueOut: Number,
   fees: Number,
@@ -41,7 +50,7 @@ const TransactionSchema = new Schema({
 
 const AddressSchema = new Schema({
   address: { type: String, required: true, unique: true, index: true },
-  balance: { type: Number, default: 0 },
+  balance: { type: Number, default: 0, index: true },
   received: { type: Number, default: 0 },
   sent: { type: Number, default: 0 },
   txCount: { type: Number, default: 0 },
@@ -87,12 +96,47 @@ const SyncStateSchema = new Schema({
   error: String
 }, { timestamps: true });
 
+const NetworkSnapshotSchema = new Schema({
+  capturedAt: { type: Date, required: true, index: true },
+  height: Number,
+  difficulty: Number,
+  networkHashrate: Number,
+  connections: Number,
+  peerCount: Number,
+  mempoolTransactions: Number,
+  mempoolBytes: Number,
+  chainSize: Number,
+  circulatingSupply: Number,
+  blockTime: Number,
+  blockReward: Number,
+  activeSmartnodes: Number,
+  totalSmartnodes: Number,
+  lockedCollateral: Number
+}, { timestamps: true });
+NetworkSnapshotSchema.index({ capturedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 365 * 3 });
+
+const MarketSnapshotSchema = new Schema({
+  capturedAt: { type: Date, required: true, index: true },
+  exchange: { type: String, required: true, index: true },
+  pair: { type: String, required: true, index: true },
+  price: Number,
+  bid: Number,
+  ask: Number,
+  high24h: Number,
+  low24h: Number,
+  volume24h: Number,
+  volumeQuote24h: Number
+}, { timestamps: true });
+MarketSnapshotSchema.index({ exchange: 1, pair: 1, capturedAt: -1 });
+
 export const Block = mongoose.model('Block', BlockSchema);
 export const Transaction = mongoose.model('Transaction', TransactionSchema);
 export const Address = mongoose.model('Address', AddressSchema);
 export const Asset = mongoose.model('Asset', AssetSchema);
 export const AssetEvent = mongoose.model('AssetEvent', AssetEventSchema);
 export const SyncState = mongoose.model('SyncState', SyncStateSchema);
+export const NetworkSnapshot = mongoose.model('NetworkSnapshot', NetworkSnapshotSchema);
+export const MarketSnapshot = mongoose.model('MarketSnapshot', MarketSnapshotSchema);
 
 let rpcId = 0;
 export async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
