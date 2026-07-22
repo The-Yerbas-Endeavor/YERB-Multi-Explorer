@@ -2,38 +2,32 @@
 
 A modern, native Yerbas blockchain explorer built with Node.js 22, TypeScript, Fastify, MongoDB, Redis, Socket.IO, Vue 3, Tailwind CSS, PM2, and Nginx.
 
-This project does not require Docker and does not depend on the legacy Yerbas explorers at runtime.
+Docker is not required.
 
-## Supported installation targets
+## Recommended platform
 
-- Ubuntu 26, AMD64 or ARM64
-- Debian 13, AMD64 or ARM64
+**Ubuntu 26 LTS on AMD64 is the primary and recommended installation target.**
 
-The application, Node.js, Redis, PM2, Nginx, and Yerbas Core can run natively on both architectures.
+Also supported:
 
-> **MongoDB note:** MongoDB Community does not currently publish an officially supported Debian 13 package. On Debian 13, use a MongoDB server on a supported Linux host and set `MONGODB_URI` to that server. A manual MongoDB tarball installation may work, but it is not recommended for production.
+- Ubuntu 26 LTS ARM64
+- Debian 13 AMD64
+- Debian 13 ARM64
+
+The main installation guide below is written for Ubuntu 26. Debian 13 and ARM64 differences are documented near the end.
 
 ## Requirements
 
-- A fully synchronized Yerbas Core node
+- Fully synchronized Yerbas Core node
 - 4 CPU cores minimum
 - 8 GB RAM minimum
-- SSD storage sized for Yerbas Core, MongoDB, indexes, and future growth
-- A domain name for public HTTPS deployment
-- A non-root sudo user
+- SSD storage
+- Domain name for HTTPS
+- Non-root sudo user
 
-For ARM64, confirm the machine reports `arm64`:
+## Ubuntu 26 installation
 
-```bash
-uname -m
-dpkg --print-architecture
-```
-
-Expected output is `aarch64` and `arm64`.
-
-## 1. Update the operating system
-
-These commands are the same on Ubuntu 26 and Debian 13:
+### 1. Update the server
 
 ```bash
 sudo apt update
@@ -48,69 +42,41 @@ Enable Redis and Nginx:
 ```bash
 sudo systemctl enable --now redis-server
 sudo systemctl enable --now nginx
-```
-
-Verify Redis:
-
-```bash
 redis-cli ping
 ```
 
-Expected response:
+Expected Redis response:
 
 ```text
 PONG
 ```
 
-## 2. Install Node.js 22
-
-NodeSource supports both AMD64 and ARM64.
+### 2. Install Node.js 22 and PM2
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
+sudo npm install -g pm2
 ```
 
-Verify the installation:
+Verify:
 
 ```bash
 node --version
 npm --version
+pm2 --version
 ```
 
 The Node.js version must begin with `v22`.
 
-Install PM2:
+### 3. Install or connect MongoDB
 
-```bash
-sudo npm install -g pm2
-pm2 --version
-```
-
-## 3. Install or connect MongoDB
-
-### Ubuntu 26
-
-MongoDB may not yet provide a repository specifically labeled for Ubuntu 26. Use a supported MongoDB 8 installation available for your architecture, or connect the explorer to a MongoDB server running on a supported host.
-
-After MongoDB is available, verify it is listening only on a private interface or localhost.
+Use MongoDB 8 on a supported Ubuntu host or connect to a private MongoDB server.
 
 Example local connection string:
 
 ```text
 mongodb://127.0.0.1:27017/yerbas_explorer
-```
-
-### Debian 13
-
-MongoDB Community does not currently provide an officially supported Debian 13 APT package. The recommended production arrangement is:
-
-```text
-Debian 13 explorer server
-        |
-        | private network
-        v
-MongoDB 8 on a supported Linux host
 ```
 
 Example remote connection string:
@@ -119,17 +85,9 @@ Example remote connection string:
 mongodb://explorer_user:STRONG_PASSWORD@10.0.0.20:27017/yerbas_explorer?authSource=admin
 ```
 
-Do not expose MongoDB directly to the public internet.
+Do not expose MongoDB to the public internet.
 
-### ARM64
-
-Use an ARM64 MongoDB build on a supported ARM64 operating system, or connect the ARM64 explorer server to a separate supported MongoDB host.
-
-The explorer itself requires no architecture-specific code changes.
-
-## 4. Configure Yerbas Core
-
-The explorer requires a fully synchronized Yerbas Core node with RPC and indexes enabled.
+### 4. Configure Yerbas Core
 
 Edit:
 
@@ -162,8 +120,6 @@ yerbas-cli stop
 yerbasd -daemon -reindex
 ```
 
-Do not expose port `8766` publicly.
-
 Verify RPC access:
 
 ```bash
@@ -171,34 +127,25 @@ yerbas-cli getblockchaininfo
 yerbas-cli getnetworkinfo
 ```
 
-## 5. Create an explorer user
+Never expose RPC port `8766` publicly.
+
+### 5. Create the explorer account
 
 ```bash
 sudo adduser --disabled-password --gecos "" yerbexplorer
 sudo mkdir -p /var/www/yerb-explorer
 sudo chown -R yerbexplorer:yerbexplorer /var/www/yerb-explorer
-```
-
-Switch to the explorer user:
-
-```bash
 sudo -iu yerbexplorer
 ```
 
-## 6. Clone the explorer
+### 6. Clone the repository
 
 ```bash
 cd /var/www/yerb-explorer
 git clone https://github.com/The-Yerbas-Endeavor/YERB-Multi-Explorer.git .
 ```
 
-For the current modernization branch before it is merged:
-
-```bash
-git checkout agent/modern-yerbas-explorer
-```
-
-## 7. Configure the environment
+### 7. Configure the environment
 
 ```bash
 cp .env.example .env
@@ -223,15 +170,13 @@ SYNC_BATCH_SIZE=25
 CORS_ORIGIN=https://explorer.yerbas.org
 ```
 
-For a remote MongoDB server, replace `MONGODB_URI` with its private connection string.
-
-Protect the environment file:
+Protect the file:
 
 ```bash
 chmod 600 .env
 ```
 
-## 8. Install and build
+### 8. Install and build
 
 ```bash
 npm ci
@@ -239,54 +184,44 @@ npm run typecheck
 npm run build
 ```
 
-The compiled frontend is created in:
+Build output:
 
 ```text
 apps/web/dist
-```
-
-The compiled API and indexer are created under:
-
-```text
 apps/api/dist
 ```
 
-## 9. Start with PM2
+### 9. Start with PM2
 
 ```bash
 pm2 start ecosystem.config.cjs
 pm2 save
-```
-
-Create the system startup service:
-
-```bash
 pm2 startup systemd -u yerbexplorer --hp /home/yerbexplorer
 ```
 
-PM2 prints one command beginning with `sudo`. Exit the explorer account, run that command, then save again:
+PM2 prints a command beginning with `sudo`. Run that command, then save the process list again:
 
 ```bash
 exit
 sudo -iu yerbexplorer pm2 save
 ```
 
-Check application status:
+Check status:
 
 ```bash
 sudo -iu yerbexplorer pm2 status
 sudo -iu yerbexplorer pm2 logs --lines 100
 ```
 
-## 10. Configure Nginx
+### 10. Configure Nginx
 
-Create the site configuration:
+Create:
 
 ```bash
 sudo nano /etc/nginx/sites-available/explorer.yerbas.org
 ```
 
-Use this configuration and replace the domain when needed:
+Use:
 
 ```nginx
 server {
@@ -340,37 +275,18 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 11. Enable HTTPS
-
-Install Certbot:
+### 11. Enable HTTPS
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-```
-
-Request the certificate:
-
-```bash
 sudo certbot --nginx -d explorer.yerbas.org
-```
-
-Test renewal:
-
-```bash
 sudo certbot renew --dry-run
 ```
 
-## 12. Verify the explorer
-
-Check the API locally:
+### 12. Verify the explorer
 
 ```bash
 curl http://127.0.0.1:3001/api/v1/health
-```
-
-Check the public API:
-
-```bash
 curl https://explorer.yerbas.org/api/v1/health
 ```
 
@@ -380,8 +296,6 @@ Open:
 https://explorer.yerbas.org
 https://explorer.yerbas.org/docs
 ```
-
-The health response should report the Yerbas chain height, indexed height, and queue status.
 
 ## Updating
 
@@ -398,17 +312,31 @@ exit
 sudo systemctl reload nginx
 ```
 
-## Common commands
+## Debian 13 installation
+
+Use the Ubuntu 26 procedure for Node.js 22, Redis, PM2, Nginx, Yerbas Core, the explorer build, and HTTPS.
+
+The main difference is MongoDB: MongoDB Community may not provide an officially supported Debian 13 APT package. For production, connect the Debian 13 explorer server to MongoDB 8 running on a supported private host.
+
+## ARM64 installation
+
+The same Ubuntu 26 instructions work on ARM64 systems such as Ampere, AWS Graviton, Oracle ARM, and supported Raspberry Pi hardware.
+
+Confirm the architecture:
 
 ```bash
-sudo -iu yerbexplorer pm2 status
-sudo -iu yerbexplorer pm2 logs yerb-explorer-api
-sudo -iu yerbexplorer pm2 logs yerb-explorer-indexer
-sudo systemctl status redis-server
-sudo systemctl status nginx
-sudo nginx -t
-redis-cli ping
+uname -m
+dpkg --print-architecture
 ```
+
+Expected output:
+
+```text
+aarch64
+arm64
+```
+
+Use ARM64 builds of Node.js, MongoDB, and Yerbas Core. The explorer source does not require architecture-specific changes.
 
 ## Troubleshooting
 
@@ -430,43 +358,19 @@ redis-cli ping
 
 ### Yerbas RPC authentication fails
 
-Confirm that `.env` and `~/.yerbas/yerbas.conf` contain the same RPC username, password, URL, and port.
+Confirm that `.env` and `~/.yerbas/yerbas.conf` use the same RPC username, password, URL, and port.
 
 ### MongoDB connection fails
 
-Confirm the MongoDB server is running, the account has access to `yerbas_explorer`, and any firewall permits port `27017` only from the explorer server's private address.
+Confirm that MongoDB is running, authentication is correct, and port `27017` is reachable only over localhost or a private network.
 
-### Nginx returns 502 Bad Gateway
+### Nginx returns 502
 
 ```bash
 sudo -iu yerbexplorer pm2 status
 curl http://127.0.0.1:3001/api/v1/health
 sudo tail -n 100 /var/log/nginx/error.log
 ```
-
-### ARM64 dependency build fails
-
-Confirm the architecture and compiler tools:
-
-```bash
-dpkg --print-architecture
-node --version
-gcc --version
-sudo apt install -y build-essential python3 make g++
-rm -rf node_modules
-npm ci
-```
-
-## Security
-
-- Keep Yerbas RPC bound to localhost.
-- Keep Redis private and bound to localhost.
-- Keep MongoDB private and require authentication.
-- Never commit `.env`.
-- Use a dedicated unprivileged account for the explorer.
-- Permit public access only to ports 80 and 443.
-- Protect administrative API routes before public deployment.
-- Back up MongoDB before migrations or full reindex operations.
 
 ## API
 
@@ -485,6 +389,16 @@ GET  /api/v1/search?q=
 POST /api/v1/admin/sync
 GET  /docs
 ```
+
+## Security
+
+- Keep Yerbas RPC bound to localhost.
+- Keep Redis private and bound to localhost.
+- Keep MongoDB private and require authentication.
+- Never commit `.env`.
+- Use the dedicated `yerbexplorer` account.
+- Expose only ports 80 and 443 publicly.
+- Protect administrative API routes before production use.
 
 ## License
 
