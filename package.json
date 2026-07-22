@@ -1,0 +1,24 @@
+{
+  "name": "yerb-multi-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Modern Yerbas blockchain and asset explorer",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/config/index.js && node --check src/services/yerbas-rpc.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "mongoose": "^8.16.5",
+    "morgan": "^1.10.0",
+    "pug": "^3.0.3"
+  }
+}
