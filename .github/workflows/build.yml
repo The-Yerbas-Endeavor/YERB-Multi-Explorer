@@ -1,0 +1,72 @@
+name: Build Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Node 22 build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Require package lock
+        shell: bash
+        run: |
+          if [[ ! -f package-lock.json ]]; then
+            echo "::error file=package.json::package-lock.json is required for reproducible npm ci builds. Run npm install with Node.js 22 and commit package-lock.json."
+            exit 1
+          fi
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck API and frontend
+        run: npm run typecheck
+
+      - name: Build API and frontend
+        run: npm run build
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          test -f apps/api/dist/server.js
+          test -f apps/api/dist/workers/indexer.js
+          test -f apps/web/dist/index.html
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: yerbas-explorer-web
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload API build
+        uses: actions/upload-artifact@v4
+        with:
+          name: yerbas-explorer-api
+          path: apps/api/dist
+          if-no-files-found: error
+          retention-days: 7
