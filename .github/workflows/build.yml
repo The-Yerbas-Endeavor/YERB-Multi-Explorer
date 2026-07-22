@@ -1,0 +1,99 @@
+name: Build Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Node 22 build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Detect package lock
+        id: lockfile
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning file=package.json::package-lock.json is missing. Falling back to npm install; commit the generated lockfile for reproducible builds."
+          fi
+
+      - name: Set up Node.js 22 with npm cache
+        if: steps.lockfile.outputs.present == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Node.js 22
+        if: steps.lockfile.outputs.present != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install locked dependencies
+        if: steps.lockfile.outputs.present == 'true'
+        run: npm ci
+
+      - name: Install dependencies and generate temporary lockfile
+        if: steps.lockfile.outputs.present != 'true'
+        run: npm install --package-lock=true
+
+      - name: Typecheck API and frontend
+        run: npm run typecheck
+
+      - name: Lint API and frontend
+        run: npm run lint
+
+      - name: Build API and frontend
+        run: npm run build
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          test -f apps/api/dist/server.js
+          test -f apps/api/dist/workers/indexer.js
+          test -f apps/web/dist/index.html
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: yerbas-explorer-web
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload API build
+        uses: actions/upload-artifact@v4
+        with:
+          name: yerbas-explorer-api
+          path: apps/api/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload generated package lock
+        if: steps.lockfile.outputs.present != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 7
