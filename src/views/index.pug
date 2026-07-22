@@ -1,0 +1,26 @@
+doctype html
+html(lang='en')
+  head
+    meta(charset='utf-8')
+    meta(name='viewport', content='width=device-width, initial-scale=1')
+    title= title
+    link(rel='stylesheet', href='/static/app.css')
+  body
+    main.shell
+      header.hero
+        p.eyebrow Yerbas Network
+        h1= appName
+        p.lead A new native blockchain and asset explorer for YERB.
+      section.grid
+        article.card
+          h2 Blockchain
+          p Blocks, transactions, addresses, supply, peers, and network status.
+        article.card
+          h2 Assets
+          p Native asset metadata, holders, issuance, transfers, and reissues.
+        article.card
+          h2 API
+          p Health, block, and asset endpoints are available under #[code /api/v1].
+      section.status
+        h2 Service status
+        p Check #[a(href='/api/v1/health') /api/v1/health] for MongoDB and Yerbas RPC connectivity.
