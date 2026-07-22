@@ -27,8 +27,29 @@ const TransactionSchema = new Schema({
 const AddressSchema = new Schema({
   address: { type: String, required: true, unique: true, index: true }, balance: { type: Number, default: 0, index: true },
   received: { type: Number, default: 0 }, sent: { type: Number, default: 0 }, txCount: { type: Number, default: 0 },
-  assetBalances: { type: Map, of: Number, default: {} }, lastSeenHeight: Number
+  assetBalances: { type: Map, of: Number, default: {} }, firstSeenHeight: Number, lastSeenHeight: Number
 }, { timestamps: true });
+
+const UtxoSchema = new Schema({
+  txid: { type: String, required: true, index: true }, vout: { type: Number, required: true },
+  address: { type: String, required: true, index: true }, value: { type: Number, required: true },
+  scriptPubKey: Schema.Types.Mixed, createdHeight: { type: Number, required: true, index: true },
+  createdBlockHash: { type: String, required: true, index: true }, createdTime: { type: Date, required: true, index: true },
+  coinbase: { type: Boolean, default: false }, spent: { type: Boolean, default: false, index: true },
+  spentByTxid: { type: String, index: true }, spentVin: Number, spentHeight: { type: Number, index: true }, spentBlockHash: String,
+  spentTime: Date
+}, { timestamps: true });
+UtxoSchema.index({ txid: 1, vout: 1 }, { unique: true });
+UtxoSchema.index({ address: 1, spent: 1, createdHeight: -1 });
+
+const AddressTransactionSchema = new Schema({
+  address: { type: String, required: true, index: true }, txid: { type: String, required: true, index: true },
+  blockHeight: { type: Number, required: true, index: true }, blockHash: { type: String, required: true, index: true },
+  time: { type: Date, required: true, index: true }, received: { type: Number, default: 0 }, sent: { type: Number, default: 0 },
+  net: { type: Number, default: 0 }, inputCount: { type: Number, default: 0 }, outputCount: { type: Number, default: 0 }
+}, { timestamps: true });
+AddressTransactionSchema.index({ address: 1, txid: 1 }, { unique: true });
+AddressTransactionSchema.index({ address: 1, blockHeight: -1, _id: -1 });
 
 const AssetSchema = new Schema({
   name: { type: String, required: true, unique: true, index: true }, normalizedName: { type: String, required: true, index: true },
@@ -67,6 +88,8 @@ MarketSnapshotSchema.index({ exchange: 1, pair: 1, capturedAt: -1 });
 export const Block = mongoose.model('Block', BlockSchema);
 export const Transaction = mongoose.model('Transaction', TransactionSchema);
 export const Address = mongoose.model('Address', AddressSchema);
+export const Utxo = mongoose.model('Utxo', UtxoSchema);
+export const AddressTransaction = mongoose.model('AddressTransaction', AddressTransactionSchema);
 export const Asset = mongoose.model('Asset', AssetSchema);
 export const AssetEvent = mongoose.model('AssetEvent', AssetEventSchema);
 export const SyncState = mongoose.model('SyncState', SyncStateSchema);
@@ -103,10 +126,7 @@ export async function enqueueMissingBlocks(): Promise<number> {
   const upper = Math.min(chainHeight, state.height + config.SYNC_BATCH_SIZE);
   for (let height = state.height + 1; height <= upper; height += 1) {
     await blockQueue.add('index-block', { height }, {
-      jobId: `block:${height}`,
-      removeOnComplete: true,
-      removeOnFail: true,
-      attempts: 5,
+      jobId: `block:${height}`, removeOnComplete: true, removeOnFail: true, attempts: 5,
       backoff: { type: 'exponential', delay: 2000 }
     });
     added += 1;
