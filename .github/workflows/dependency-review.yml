@@ -1,4 +1,4 @@
-name: Dependency Review
+name: Dependency Validation
 
 on:
   pull_request:
@@ -9,26 +9,42 @@ on:
       - "package-lock.json"
       - "apps/**/package.json"
       - ".github/workflows/dependency-review.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: dependency-review-${{ github.event.pull_request.number }}
+  group: dependency-validation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  dependency-review:
-    name: Review dependency changes
+  dependency-validation:
+    name: Validate dependency manifests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v6
         with:
-          fail-on-severity: high
-          deny-licenses: GPL-3.0, AGPL-3.0
+          node-version: 22
+
+      - name: Prepare dependency lock data
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            echo "Using committed package-lock.json"
+          else
+            echo "::warning file=package.json::package-lock.json is not committed; generating a temporary lockfile for validation."
+            npm install --package-lock-only --ignore-scripts
+          fi
+
+      - name: Validate dependency tree
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
