@@ -1,0 +1,26 @@
+{
+  "name": "@yerb/explorer-web",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "eslint src --ext .ts,.vue"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "axios": "^1.10.0",
+    "lucide-vue-next": "^0.525.0",
+    "socket.io-client": "^4.8.1",
+    "vue": "^3.5.17",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.12"
+  }
+}

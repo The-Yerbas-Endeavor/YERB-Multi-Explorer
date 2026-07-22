@@ -1,0 +1,52 @@
+services:
+  mongodb:
+    image: mongo:8
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all"]
+    volumes:
+      - mongodb-data:/data/db
+    networks: [explorer]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks: [explorer]
+
+  api:
+    image: node:22-bookworm-slim
+    restart: unless-stopped
+    working_dir: /app
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/yerbas_explorer
+      REDIS_URL: redis://redis:6379
+      API_HOST: 0.0.0.0
+    command: sh -c "npm ci && npm run build && npx pm2-runtime ecosystem.config.cjs --only yerb-explorer-api,yerb-explorer-indexer"
+    volumes:
+      - .:/app
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on: [mongodb, redis]
+    networks: [explorer]
+
+  web:
+    image: node:22-bookworm-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm ci && npm run build -w apps/web && npx serve -s apps/web/dist -l 4173"
+    volumes:
+      - .:/app
+    ports:
+      - "127.0.0.1:4173:4173"
+    depends_on: [api]
+    networks: [explorer]
+
+networks:
+  explorer:
+
+volumes:
+  mongodb-data:
+  redis-data:

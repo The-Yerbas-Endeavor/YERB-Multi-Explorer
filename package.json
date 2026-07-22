@@ -1,24 +1,19 @@
 {
   "name": "yerb-multi-explorer",
-  "version": "0.1.0",
   "private": true,
-  "description": "Modern Yerbas blockchain and asset explorer",
-  "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
+  "version": "0.2.0",
+  "engines": { "node": ">=22" },
+  "workspaces": ["apps/api", "apps/web"],
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js",
-    "check": "node --check src/server.js && node --check src/app.js && node --check src/config/index.js && node --check src/services/yerbas-rpc.js"
+    "dev": "concurrently -n api,web \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "start": "pm2-runtime ecosystem.config.cjs",
+    "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web",
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web"
   },
   "dependencies": {
-    "compression": "^1.8.1",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0",
-    "helmet": "^8.1.0",
-    "mongoose": "^8.16.5",
-    "morgan": "^1.10.0",
-    "pug": "^3.0.3"
-  }
+    "pm2": "^6.0.8",
+    "serve": "^14.2.4"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
 }
