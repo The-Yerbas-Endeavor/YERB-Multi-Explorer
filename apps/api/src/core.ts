@@ -1,9 +1,9 @@
 import mongoose, { Schema } from 'mongoose';
-import IORedis from 'ioredis';
+import { Redis } from 'ioredis';
 import { Queue } from 'bullmq';
 import { config } from './config.js';
 
-export const redis = new IORedis(config.REDIS_URL, { maxRetriesPerRequest: null });
+export const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
 export const blockQueue = new Queue('yerbas-blocks', { connection: redis });
 
 export async function connectDatabase(): Promise<void> {
