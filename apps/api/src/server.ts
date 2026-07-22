@@ -6,6 +6,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { Server as SocketServer } from 'socket.io';
 import { config } from './config.js';
+import { registerAddressRoutes } from './address-routes.js';
 import {
   Address,
   Asset,
@@ -15,6 +16,7 @@ import {
   NetworkSnapshot,
   SyncState,
   Transaction,
+  Utxo,
   connectDatabase,
   enqueueMissingBlocks,
   redis,
@@ -26,7 +28,7 @@ await app.register(cors, { origin: config.CORS_ORIGIN.split(',').map(v => v.trim
 await app.register(helmet);
 await app.register(rateLimit, { max: 240, timeWindow: '1 minute' });
 await app.register(swagger, {
-  openapi: { info: { title: 'YERB Multi-Explorer API', version: '0.3.0' } }
+  openapi: { info: { title: 'YERB Multi-Explorer API', version: '0.4.0' } }
 });
 await app.register(swaggerUi, { routePrefix: '/docs' });
 
@@ -35,15 +37,24 @@ async function safeRpc<T>(method: string, params: unknown[] = []): Promise<T | n
 }
 
 app.get('/api/v1/health', async () => {
-  const [height, state] = await Promise.all([
+  const [height, state, addresses, unspentOutputs] = await Promise.all([
     safeRpc<number>('getblockcount'),
-    SyncState.findOne({ key: 'blocks' }).lean()
+    SyncState.findOne({ key: 'blocks' }).lean(),
+    Address.countDocuments(),
+    Utxo.countDocuments({ spent: false })
   ]);
-  return { status: height === null ? 'degraded' : 'ok', chainHeight: height, indexedHeight: state?.height ?? -1, queue: state?.status ?? 'idle' };
+  return {
+    status: height === null ? 'degraded' : 'ok',
+    chainHeight: height,
+    indexedHeight: state?.height ?? -1,
+    queue: state?.status ?? 'idle',
+    addresses,
+    unspentOutputs
+  };
 });
 
 app.get('/api/v1/coin', async () => {
-  const [blockchain, mining, network, mempool, txoutset, peers, smartnodes, latestMarket, sync, indexedBlocks, indexedTransactions, assetCount] = await Promise.all([
+  const [blockchain, mining, network, mempool, txoutset, peers, smartnodes, latestMarket, sync, indexedBlocks, indexedTransactions, assetCount, addressCount, utxoCount] = await Promise.all([
     safeRpc<any>('getblockchaininfo'),
     safeRpc<any>('getmininginfo'),
     safeRpc<any>('getnetworkinfo'),
@@ -55,7 +66,9 @@ app.get('/api/v1/coin', async () => {
     SyncState.findOne({ key: 'blocks' }).lean(),
     Block.countDocuments(),
     Transaction.countDocuments(),
-    Asset.countDocuments()
+    Asset.countDocuments(),
+    Address.countDocuments(),
+    Utxo.countDocuments({ spent: false })
   ]);
 
   const smartnodeValues = smartnodes && typeof smartnodes === 'object' ? Object.values(smartnodes) : [];
@@ -68,14 +81,8 @@ app.get('/api/v1/coin', async () => {
 
   return {
     identity: {
-      name: 'Yerbas',
-      ticker: 'YERB',
-      type: 'Proof of Work + Smartnodes',
-      algorithm: 'GhostRider',
-      consensus: 'PoW + deterministic smartnodes',
-      maxSupply: 420000000,
-      targetBlockTimeSeconds: 60,
-      assetLayer: true
+      name: 'Yerbas', ticker: 'YERB', type: 'Proof of Work + Smartnodes', algorithm: 'GhostRider',
+      consensus: 'PoW + deterministic smartnodes', maxSupply: 420000000, targetBlockTimeSeconds: 60, assetLayer: true
     },
     chain: {
       height: blockchain?.blocks ?? mining?.blocks ?? null,
@@ -98,15 +105,9 @@ app.get('/api/v1/coin', async () => {
       fullyDilutedValue: price ? price * 420000000 : null
     },
     market: latestMarket ? {
-      exchange: latestMarket.exchange,
-      pair: latestMarket.pair,
-      price: latestMarket.price,
-      bid: latestMarket.bid,
-      ask: latestMarket.ask,
-      high24h: latestMarket.high24h,
-      low24h: latestMarket.low24h,
-      volume24h: latestMarket.volume24h,
-      updatedAt: latestMarket.capturedAt
+      exchange: latestMarket.exchange, pair: latestMarket.pair, price: latestMarket.price, bid: latestMarket.bid,
+      ask: latestMarket.ask, high24h: latestMarket.high24h, low24h: latestMarket.low24h,
+      volume24h: latestMarket.volume24h, updatedAt: latestMarket.capturedAt
     } : null,
     network: {
       connections: network?.connections ?? peers?.length ?? null,
@@ -133,7 +134,9 @@ app.get('/api/v1/coin', async () => {
       status: sync?.status ?? 'idle',
       indexedBlocks,
       indexedTransactions,
-      indexedAssets: assetCount
+      indexedAssets: assetCount,
+      indexedAddresses: addressCount,
+      unspentOutputs: utxoCount
     }
   };
 });
@@ -160,7 +163,7 @@ app.get('/api/v1/richlist', async request => {
   const limit = Math.min(500, Math.max(1, Number((request.query as { limit?: string }).limit ?? 100)));
   const [items, aggregate] = await Promise.all([
     Address.find({ balance: { $gt: 0 } }).sort({ balance: -1 }).limit(limit).select({ address: 1, balance: 1, received: 1, sent: 1, txCount: 1 }).lean(),
-    Address.aggregate([{ $group: { _id: null, total: { $sum: '$balance' }, addresses: { $sum: 1 } } }])
+    Address.aggregate([{ $match: { balance: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$balance' }, addresses: { $sum: 1 } } }])
   ]);
   const total = Number(aggregate[0]?.total ?? 0);
   return { total, addresses: Number(aggregate[0]?.addresses ?? 0), items: items.map((item, index) => ({ ...item, rank: index + 1, percent: total ? (Number(item.balance) / total) * 100 : 0 })) };
@@ -189,6 +192,8 @@ app.get('/api/v1/transactions/:txid', async (request, reply) => {
   if (!item) return reply.code(404).send({ error: 'Transaction not found' });
   return item;
 });
+
+await registerAddressRoutes(app);
 
 app.get('/api/v1/assets', async request => {
   const query = request.query as { q?: string; page?: string; limit?: string };
