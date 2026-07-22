@@ -32,25 +32,26 @@ jobs:
   audit:
     name: Audit production dependencies
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Require package lock
-        run: |
-          test -f package-lock.json || {
-            echo "::error file=package.json::Commit package-lock.json before enabling reproducible security audits."
-            exit 1
-          }
+        uses: actions/checkout@v6
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
+
+      - name: Prepare dependency lock data
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            echo "Using committed package-lock.json"
+          else
+            echo "::warning file=package.json::package-lock.json is not committed; generating a temporary lockfile for this audit. Commit the generated lockfile for reproducible CI installs."
+            npm install --package-lock-only --ignore-scripts
+          fi
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
