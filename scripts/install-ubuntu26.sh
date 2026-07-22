@@ -33,7 +33,6 @@ YERB_RPC_USER="${YERB_RPC_USER:-}"
 YERB_RPC_PASSWORD="${YERB_RPC_PASSWORD:-}"
 
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
-warn() { printf '\n\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
 die() { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 on_error() {
@@ -90,7 +89,7 @@ install_system_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y \
-    ca-certificates curl git gnupg build-essential \
+    ca-certificates curl git gnupg sudo build-essential \
     nginx redis-server lsb-release certbot python3-certbot-nginx
 
   systemctl enable --now redis-server nginx
