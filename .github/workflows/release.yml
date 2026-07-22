@@ -45,26 +45,49 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.release.outputs.tag }}
           fetch-depth: 0
 
-      - name: Require package lock
-        run: test -f package-lock.json
+      - name: Detect package lock
+        id: lockfile
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning file=package.json::package-lock.json is missing. Falling back to npm install for this release."
+          fi
 
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+      - name: Set up Node.js 22 with npm cache
+        if: steps.lockfile.outputs.present == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
+      - name: Set up Node.js 22
+        if: steps.lockfile.outputs.present != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install locked dependencies
+        if: steps.lockfile.outputs.present == 'true'
         run: npm ci
+
+      - name: Install dependencies and generate temporary lockfile
+        if: steps.lockfile.outputs.present != 'true'
+        run: npm install --package-lock=true
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         run: npm run build
