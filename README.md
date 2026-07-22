@@ -1,128 +1,143 @@
 # YERB Multi-Explorer
 
-A modern, native explorer built specifically for the Yerbas blockchain.
+A modern, native Yerbas blockchain explorer built with Node.js 22, TypeScript, Fastify, MongoDB, Redis, Socket.IO, Vue 3, Tailwind CSS, PM2, and Nginx.
 
-This is a new codebase. It does not embed, import, redirect to, or require the legacy Yerbas explorers at runtime.
+This project does not require Docker and does not depend on the legacy Yerbas explorers at runtime.
 
-## Technology
+## Supported installation targets
 
-- Node.js 22
-- TypeScript
-- Fastify
-- MongoDB
-- Redis and BullMQ
-- Socket.IO live events
-- Vue 3
-- Tailwind CSS 4
-- PM2 process composition
-- Docker Compose for MongoDB, Redis, API, indexer, and web deployment
+- Ubuntu 26, AMD64 or ARM64
+- Debian 13, AMD64 or ARM64
 
-## Five-phase implementation
+The application, Node.js, Redis, PM2, Nginx, and Yerbas Core can run natively on both architectures.
 
-### Phase 1: data architecture
+> **MongoDB note:** MongoDB Community does not currently publish an officially supported Debian 13 package. On Debian 13, use a MongoDB server on a supported Linux host and set `MONGODB_URI` to that server. A manual MongoDB tarball installation may work, but it is not recommended for production.
 
-MongoDB models are included for:
+## Requirements
 
-- blocks
-- transactions
-- addresses
-- assets
-- asset activity
-- synchronization state
+- A fully synchronized Yerbas Core node
+- 4 CPU cores minimum
+- 8 GB RAM minimum
+- SSD storage sized for Yerbas Core, MongoDB, indexes, and future growth
+- A domain name for public HTTPS deployment
+- A non-root sudo user
 
-The schema is designed to expand with asset holders, smartnodes, market history, mempool state, peers, rich lists, charts, and governance data.
+For ARM64, confirm the machine reports `arm64`:
 
-### Phase 2: explorer API
-
-The Fastify API currently includes:
-
-```text
-GET  /api/v1/health
-GET  /api/v1/dashboard
-GET  /api/v1/blocks
-GET  /api/v1/blocks/:height-or-hash
-GET  /api/v1/transactions/:txid
-GET  /api/v1/assets
-GET  /api/v1/assets/:name
-GET  /api/v1/search?q=
-POST /api/v1/admin/sync
-GET  /docs
+```bash
+uname -m
+dpkg --print-architecture
 ```
 
-OpenAPI documentation is served at `/docs`.
+Expected output is `aarch64` and `arm64`.
 
-### Phase 3: application pages
+## 1. Update the operating system
 
-The Vue application establishes the visual system and dashboard for:
+These commands are the same on Ubuntu 26 and Debian 13:
 
-- dashboard
-- block explorer
-- transaction explorer
-- address explorer
-- asset explorer
-- smartnodes
-- network
-- markets
-- charts
-- search
-- API documentation
-
-The current dashboard includes live network status, chain and indexed heights, recent blocks, recent transactions, asset activity, synchronization progress, and global search.
-
-### Phase 4: indexing engine
-
-The indexer uses Redis and BullMQ instead of cron-only synchronization.
-
-Implemented behavior:
-
-- resumes from persisted synchronization state
-- queues blocks in configurable batches
-- prevents duplicate block jobs with deterministic job IDs
-- retries failed jobs with exponential backoff
-- indexes blocks and transactions
-- detects native asset events exposed by Yerbas RPC transaction data
-- upserts asset definitions and activity
-- publishes live explorer events through Redis
-- shuts down safely under PM2 or Docker
-
-The exact Yerbas asset-event decoder may require adjustment to match the final RPC transaction payload produced by the deployed Yerbas Core version. Raw block and transaction payloads are retained to make decoder upgrades and reindexing possible.
-
-### Phase 5: live frontend and deployment
-
-The Vue 3 and Tailwind frontend receives live block events through Socket.IO. PM2 runs the API and indexer as separate managed processes. Docker Compose supplies a complete service layout.
-
-## Repository layout
-
-```text
-YERB-Multi-Explorer/
-├── apps/
-│   ├── api/
-│   │   ├── src/
-│   │   │   ├── config.ts
-│   │   │   ├── core.ts
-│   │   │   ├── server.ts
-│   │   │   └── workers/indexer.ts
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   └── web/
-│       ├── src/
-│       │   ├── App.vue
-│       │   ├── main.ts
-│       │   └── styles.css
-│       ├── index.html
-│       ├── package.json
-│       └── vite.config.ts
-├── .env.example
-├── docker-compose.yml
-├── ecosystem.config.cjs
-└── package.json
+```bash
+sudo apt update
+sudo apt full-upgrade -y
+sudo apt install -y \
+  git curl ca-certificates gnupg build-essential \
+  nginx redis-server lsb-release
 ```
 
-## Yerbas Core requirements
+Enable Redis and Nginx:
 
-The explorer requires a fully synchronized Yerbas Core node with RPC enabled and the indexes needed by address and asset queries.
+```bash
+sudo systemctl enable --now redis-server
+sudo systemctl enable --now nginx
+```
 
-Example `yerbas.conf`:
+Verify Redis:
+
+```bash
+redis-cli ping
+```
+
+Expected response:
+
+```text
+PONG
+```
+
+## 2. Install Node.js 22
+
+NodeSource supports both AMD64 and ARM64.
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+Verify the installation:
+
+```bash
+node --version
+npm --version
+```
+
+The Node.js version must begin with `v22`.
+
+Install PM2:
+
+```bash
+sudo npm install -g pm2
+pm2 --version
+```
+
+## 3. Install or connect MongoDB
+
+### Ubuntu 26
+
+MongoDB may not yet provide a repository specifically labeled for Ubuntu 26. Use a supported MongoDB 8 installation available for your architecture, or connect the explorer to a MongoDB server running on a supported host.
+
+After MongoDB is available, verify it is listening only on a private interface or localhost.
+
+Example local connection string:
+
+```text
+mongodb://127.0.0.1:27017/yerbas_explorer
+```
+
+### Debian 13
+
+MongoDB Community does not currently provide an officially supported Debian 13 APT package. The recommended production arrangement is:
+
+```text
+Debian 13 explorer server
+        |
+        | private network
+        v
+MongoDB 8 on a supported Linux host
+```
+
+Example remote connection string:
+
+```text
+mongodb://explorer_user:STRONG_PASSWORD@10.0.0.20:27017/yerbas_explorer?authSource=admin
+```
+
+Do not expose MongoDB directly to the public internet.
+
+### ARM64
+
+Use an ARM64 MongoDB build on a supported ARM64 operating system, or connect the ARM64 explorer server to a separate supported MongoDB host.
+
+The explorer itself requires no architecture-specific code changes.
+
+## 4. Configure Yerbas Core
+
+The explorer requires a fully synchronized Yerbas Core node with RPC and indexes enabled.
+
+Edit:
+
+```bash
+nano ~/.yerbas/yerbas.conf
+```
+
+Add or confirm:
 
 ```ini
 server=1
@@ -140,163 +155,336 @@ timestampindex=1
 txindex=1
 ```
 
-Do not expose the RPC port publicly.
-
-## Local development
-
-Requirements:
-
-- Node.js 22
-- MongoDB 8
-- Redis 7
-- synchronized Yerbas Core RPC
-
-Clone and configure:
+Restart Yerbas Core after changing index settings. A reindex may be required:
 
 ```bash
-git clone https://github.com/The-Yerbas-Endeavor/YERB-Multi-Explorer.git
-cd YERB-Multi-Explorer
+yerbas-cli stop
+yerbasd -daemon -reindex
+```
+
+Do not expose port `8766` publicly.
+
+Verify RPC access:
+
+```bash
+yerbas-cli getblockchaininfo
+yerbas-cli getnetworkinfo
+```
+
+## 5. Create an explorer user
+
+```bash
+sudo adduser --disabled-password --gecos "" yerbexplorer
+sudo mkdir -p /var/www/yerb-explorer
+sudo chown -R yerbexplorer:yerbexplorer /var/www/yerb-explorer
+```
+
+Switch to the explorer user:
+
+```bash
+sudo -iu yerbexplorer
+```
+
+## 6. Clone the explorer
+
+```bash
+cd /var/www/yerb-explorer
+git clone https://github.com/The-Yerbas-Endeavor/YERB-Multi-Explorer.git .
+```
+
+For the current modernization branch before it is merged:
+
+```bash
+git checkout agent/modern-yerbas-explorer
+```
+
+## 7. Configure the environment
+
+```bash
 cp .env.example .env
 nano .env
-npm install
 ```
 
-Start MongoDB and Redis, then run:
+Minimum production configuration:
+
+```env
+NODE_ENV=production
+API_HOST=127.0.0.1
+API_PORT=3001
+
+MONGODB_URI=mongodb://127.0.0.1:27017/yerbas_explorer
+REDIS_URL=redis://127.0.0.1:6379
+
+YERB_RPC_URL=http://127.0.0.1:8766
+YERB_RPC_USER=CHANGE_THIS_USERNAME
+YERB_RPC_PASSWORD=CHANGE_THIS_TO_A_LONG_RANDOM_PASSWORD
+
+SYNC_BATCH_SIZE=25
+CORS_ORIGIN=https://explorer.yerbas.org
+```
+
+For a remote MongoDB server, replace `MONGODB_URI` with its private connection string.
+
+Protect the environment file:
 
 ```bash
-npm run dev
+chmod 600 .env
 ```
 
-Frontend:
-
-```text
-http://127.0.0.1:5173
-```
-
-API:
-
-```text
-http://127.0.0.1:3001
-```
-
-API documentation:
-
-```text
-http://127.0.0.1:3001/docs
-```
-
-## Build and validate
+## 8. Install and build
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm run build
 ```
 
-## PM2 deployment
-
-Build the applications:
-
-```bash
-npm ci
-npm run build
-```
-
-Start the API and indexer:
-
-```bash
-pm2 start ecosystem.config.cjs
-pm2 save
-pm2 startup
-```
-
-Inspect processes and logs:
-
-```bash
-pm2 status
-pm2 logs yerb-explorer-api
-pm2 logs yerb-explorer-indexer
-```
-
-The compiled Vue frontend is located in:
+The compiled frontend is created in:
 
 ```text
 apps/web/dist
 ```
 
-Serve that directory through Nginx and proxy `/api/` and `/socket.io/` to `127.0.0.1:3001`.
+The compiled API and indexer are created under:
 
-## Docker Compose deployment
-
-Create the production environment file:
-
-```bash
-cp .env.example .env
-nano .env
+```text
+apps/api/dist
 ```
 
-Start the stack:
+## 9. Start with PM2
 
 ```bash
-docker compose up -d
+pm2 start ecosystem.config.cjs
+pm2 save
 ```
 
-View service status and logs:
+Create the system startup service:
 
 ```bash
-docker compose ps
-docker compose logs -f api
-docker compose logs -f web
+pm2 startup systemd -u yerbexplorer --hp /home/yerbexplorer
 ```
 
-The compose stack binds the API and frontend to localhost so Nginx can be the only public entry point.
+PM2 prints one command beginning with `sudo`. Exit the explorer account, run that command, then save again:
 
-## Initial synchronization
+```bash
+exit
+sudo -iu yerbexplorer pm2 save
+```
 
-The API automatically queues missing blocks in small batches. The dedicated indexer consumes those jobs and stores indexed results.
+Check application status:
 
-Monitor synchronization:
+```bash
+sudo -iu yerbexplorer pm2 status
+sudo -iu yerbexplorer pm2 logs --lines 100
+```
+
+## 10. Configure Nginx
+
+Create the site configuration:
+
+```bash
+sudo nano /etc/nginx/sites-available/explorer.yerbas.org
+```
+
+Use this configuration and replace the domain when needed:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name explorer.yerbas.org;
+
+    root /var/www/yerb-explorer/apps/web/dist;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /docs {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Enable the site:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/explorer.yerbas.org \
+  /etc/nginx/sites-enabled/explorer.yerbas.org
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+## 11. Enable HTTPS
+
+Install Certbot:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+```
+
+Request the certificate:
+
+```bash
+sudo certbot --nginx -d explorer.yerbas.org
+```
+
+Test renewal:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+## 12. Verify the explorer
+
+Check the API locally:
 
 ```bash
 curl http://127.0.0.1:3001/api/v1/health
 ```
 
-Example response:
+Check the public API:
 
-```json
-{
-  "status": "ok",
-  "chainHeight": 1500000,
-  "indexedHeight": 1499950,
-  "queue": "indexed"
-}
+```bash
+curl https://explorer.yerbas.org/api/v1/health
 ```
 
-## Production work still required
+Open:
 
-This branch establishes all five phases as an integrated, runnable architecture. Before declaring the explorer production-complete, the following Yerbas-specific modules should be expanded and tested against a real node:
+```text
+https://explorer.yerbas.org
+https://explorer.yerbas.org/docs
+```
 
-- exact asset issue, reissue, transfer, restricted asset, qualifier, and tag decoding
-- address balance and address transaction indexing
-- chain reorganization rollback and replay
-- mempool ingestion
-- smartnode indexing
-- holder snapshots and historical ownership
-- market adapters
-- peer and network analytics
-- chart aggregation
-- admin authentication for synchronization controls
-- integration tests using captured Yerbas RPC fixtures
-- hardened Nginx and Ubuntu 26 installer
+The health response should report the Yerbas chain height, indexed height, and queue status.
+
+## Updating
+
+```bash
+sudo -iu yerbexplorer
+cd /var/www/yerb-explorer
+git pull
+npm ci
+npm run typecheck
+npm run build
+pm2 restart ecosystem.config.cjs --update-env
+pm2 save
+exit
+sudo systemctl reload nginx
+```
+
+## Common commands
+
+```bash
+sudo -iu yerbexplorer pm2 status
+sudo -iu yerbexplorer pm2 logs yerb-explorer-api
+sudo -iu yerbexplorer pm2 logs yerb-explorer-indexer
+sudo systemctl status redis-server
+sudo systemctl status nginx
+sudo nginx -t
+redis-cli ping
+```
+
+## Troubleshooting
+
+### Node.js is not version 22
+
+```bash
+node --version
+sudo apt remove -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+### Redis connection fails
+
+```bash
+sudo systemctl restart redis-server
+redis-cli ping
+```
+
+### Yerbas RPC authentication fails
+
+Confirm that `.env` and `~/.yerbas/yerbas.conf` contain the same RPC username, password, URL, and port.
+
+### MongoDB connection fails
+
+Confirm the MongoDB server is running, the account has access to `yerbas_explorer`, and any firewall permits port `27017` only from the explorer server's private address.
+
+### Nginx returns 502 Bad Gateway
+
+```bash
+sudo -iu yerbexplorer pm2 status
+curl http://127.0.0.1:3001/api/v1/health
+sudo tail -n 100 /var/log/nginx/error.log
+```
+
+### ARM64 dependency build fails
+
+Confirm the architecture and compiler tools:
+
+```bash
+dpkg --print-architecture
+node --version
+gcc --version
+sudo apt install -y build-essential python3 make g++
+rm -rf node_modules
+npm ci
+```
 
 ## Security
 
 - Keep Yerbas RPC bound to localhost.
-- Keep MongoDB and Redis private.
-- Replace all example credentials.
+- Keep Redis private and bound to localhost.
+- Keep MongoDB private and require authentication.
+- Never commit `.env`.
+- Use a dedicated unprivileged account for the explorer.
+- Permit public access only to ports 80 and 443.
 - Protect administrative API routes before public deployment.
-- Put Nginx and HTTPS in front of the API and frontend.
-- Back up MongoDB before schema migrations or full reindex operations.
+- Back up MongoDB before migrations or full reindex operations.
+
+## API
+
+```text
+GET  /api/v1/health
+GET  /api/v1/dashboard
+GET  /api/v1/coin
+GET  /api/v1/blocks
+GET  /api/v1/blocks/:height-or-hash
+GET  /api/v1/transactions/:txid
+GET  /api/v1/assets
+GET  /api/v1/assets/:name
+GET  /api/v1/network/history
+GET  /api/v1/richlist
+GET  /api/v1/search?q=
+POST /api/v1/admin/sync
+GET  /docs
+```
 
 ## License
 
