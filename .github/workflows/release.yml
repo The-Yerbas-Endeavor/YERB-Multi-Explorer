@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag must look like v1.2.3."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Require package lock
+        run: test -f package-lock.json
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify build output
+        run: |
+          test -f apps/api/dist/server.js
+          test -f apps/api/dist/workers/indexer.js
+          test -f apps/web/dist/index.html
+
+      - name: Assemble release archive
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          archive="yerbas-multi-explorer-${RELEASE_TAG}"
+          mkdir -p "$archive/apps/api" "$archive/apps/web" "$archive/scripts" "$archive/docs"
+
+          cp -a apps/api/dist "$archive/apps/api/"
+          cp -a apps/web/dist "$archive/apps/web/"
+          cp package.json package-lock.json ecosystem.config.cjs README.md .env.example "$archive/"
+          cp scripts/install-ubuntu26.sh "$archive/scripts/"
+          cp -a docs/. "$archive/docs/"
+
+          tar -czf "${archive}-linux.tar.gz" "$archive"
+          sha256sum "${archive}-linux.tar.gz" > SHA256SUMS
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yerbas-multi-explorer-${{ steps.release.outputs.tag }}
+          path: |
+            yerbas-multi-explorer-${{ steps.release.outputs.tag }}-linux.tar.gz
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            yerbas-multi-explorer-${{ steps.release.outputs.tag }}-linux.tar.gz
+            SHA256SUMS
