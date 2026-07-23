@@ -10,6 +10,8 @@ APP_PORT="${APP_PORT:-3001}"
 MONGO_VERSION="${MONGO_VERSION:-8.0}"
 MONGO_DB="${MONGO_DB:-explorerdb}"
 LOG_FILE="/var/log/${APP_NAME}-install.log"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+YERBAS_ENV_FILE="/etc/yerbas/explorer.env"
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 trap 'echo "[ERROR] Installation failed near line $LINENO. Review $LOG_FILE" >&2' ERR
@@ -25,22 +27,23 @@ source /etc/os-release
 [[ "${VERSION_ID:-}" == "26.04" ]] || warn "Designed for Ubuntu 26.04; detected ${PRETTY_NAME:-unknown}."
 
 read -r -p "Explorer domain (example: explorer.yerbas.org, blank for IP-only): " DOMAIN
-read -r -p "Yerbas RPC host [127.0.0.1]: " RPC_HOST
-RPC_HOST="${RPC_HOST:-127.0.0.1}"
-read -r -p "Yerbas RPC port [8332]: " RPC_PORT
-RPC_PORT="${RPC_PORT:-8332}"
-read -r -p "Yerbas RPC username: " RPC_USER
-read -r -s -p "Yerbas RPC password: " RPC_PASSWORD
-echo
-[[ -n "$RPC_USER" && -n "$RPC_PASSWORD" ]] || die "RPC username and password are required."
 read -r -p "Install Let's Encrypt SSL when DNS is ready? [y/N]: " ENABLE_SSL
 ENABLE_SSL="${ENABLE_SSL,,}"
 
 info "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg git nginx ufw jq build-essential python3 unattended-upgrades certbot python3-certbot-nginx
+apt-get install -y ca-certificates curl gnupg git nginx ufw jq build-essential python3 unattended-upgrades certbot python3-certbot-nginx openssl unzip
 systemctl enable --now nginx
+
+info "Installing Yerbas Core wallet and local RPC node"
+[[ -x "$SCRIPT_DIR/install-yerbas-core.sh" ]] || chmod +x "$SCRIPT_DIR/install-yerbas-core.sh"
+"$SCRIPT_DIR/install-yerbas-core.sh"
+[[ -f "$YERBAS_ENV_FILE" ]] || die "Yerbas Core installer did not create $YERBAS_ENV_FILE"
+# shellcheck disable=SC1090
+source "$YERBAS_ENV_FILE"
+[[ -n "${RPC_USER:-}" && -n "${RPC_PASSWORD:-}" && -n "${RPC_PORT:-}" ]] || die "Yerbas RPC credentials are incomplete."
+RPC_HOST="${RPC_HOST:-127.0.0.1}"
 
 info "Installing native MongoDB ${MONGO_VERSION}"
 install -d -m 0755 /etc/apt/keyrings
@@ -52,7 +55,7 @@ apt-get update
 apt-get install -y mongodb-org
 sed -i 's/^\([[:space:]]*bindIp:[[:space:]]*\).*/\1127.0.0.1/' /etc/mongod.conf
 systemctl enable --now mongod
-systemctl is-active --quiet mongod || die "MongoDB failed to start. Check: journalctl -u mongod -n 100"
+systemctl is-active --quiet mongod || die "MongoDB failed to start. Check: journalctl -u mongod -n 100 --no-pager -l"
 
 info "Installing Node.js 22"
 curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
@@ -62,7 +65,7 @@ apt-get install -y nodejs
 node --version | grep -q '^v22\.' || die "Node.js 22 was not installed."
 npm install -g pm2
 
-info "Creating service account"
+info "Creating explorer service account"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "/home/$APP_USER" --shell /bin/bash "$APP_USER"
 
 info "Installing explorer source"
@@ -103,6 +106,7 @@ RPC_PASSWORD=$RPC_PASSWORD
 APP_PORT=$APP_PORT
 DOMAIN=$DOMAIN
 MONGO_URI=mongodb://127.0.0.1:27017/$MONGO_DB
+YERBAS_VERSION=${YERBAS_VERSION:-unknown}
 EOF
 chmod 600 "$APP_DIR/.installer.env"
 chown "$APP_USER:$APP_USER" "$APP_DIR/.installer.env"
@@ -120,11 +124,19 @@ module.exports = {
     restart_delay: 5000,
     max_restarts: 20,
     time: true,
-    env: { NODE_ENV: 'production' }
+    env: {
+      NODE_ENV: 'production',
+      RPC_HOST: '${RPC_HOST}',
+      RPC_PORT: '${RPC_PORT}',
+      RPC_USER: '${RPC_USER}',
+      RPC_PASSWORD: '${RPC_PASSWORD}',
+      MONGO_URI: 'mongodb://127.0.0.1:27017/${MONGO_DB}'
+    }
   }]
 };
 EOF
 chown "$APP_USER:$APP_USER" "$APP_DIR/ecosystem.config.cjs"
+chmod 600 "$APP_DIR/ecosystem.config.cjs"
 
 info "Configuring PM2 startup"
 PM2_HOME_DIR="/home/${APP_USER}/.pm2"
@@ -135,8 +147,8 @@ PM2_BIN="$(command -v pm2)"
 cat > /etc/systemd/system/pm2-${APP_USER}.service <<EOF
 [Unit]
 Description=PM2 process manager for ${APP_USER}
-After=network.target mongod.service
-Requires=mongod.service
+After=network.target mongod.service yerbasd.service
+Requires=mongod.service yerbasd.service
 
 [Service]
 Type=forking
@@ -220,9 +232,11 @@ fi
 install -m 0755 "$APP_DIR/installer/update.sh" /usr/local/sbin/yerb-explorer-update 2>/dev/null || true
 install -m 0755 "$APP_DIR/installer/healthcheck.sh" /usr/local/sbin/yerb-explorer-health 2>/dev/null || true
 install -m 0755 "$APP_DIR/installer/uninstall.sh" /usr/local/sbin/yerb-explorer-uninstall 2>/dev/null || true
+install -m 0755 "$APP_DIR/installer/install-yerbas-core.sh" /usr/local/sbin/yerbas-core-install 2>/dev/null || true
 
 info "Running health checks"
 sleep 5
+systemctl is-active --quiet yerbasd && ok "Yerbas Core is running"
 systemctl is-active --quiet mongod && ok "MongoDB is running"
 systemctl is-active --quiet nginx && ok "Nginx is running"
 systemctl is-active --quiet "pm2-${APP_USER}" && ok "PM2 systemd service is running"
@@ -230,9 +244,14 @@ sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 desc
 
 printf '\nInstallation complete.\n'
 printf 'Application directory: %s\n' "$APP_DIR"
+printf 'Yerbas Core: %s, native yerbasd service\n' "${YERBAS_VERSION:-installed}"
+printf 'Yerbas data directory: /var/lib/yerbas/.yerbas\n'
+printf 'Yerbas RPC: 127.0.0.1:%s\n' "$RPC_PORT"
 printf 'MongoDB: native mongod service on 127.0.0.1:27017\n'
 printf 'PM2 logs: sudo -u %s PM2_HOME=/home/%s/.pm2 pm2 logs %s\n' "$APP_USER" "$APP_USER" "$APP_NAME"
+printf 'Wallet status: sudo systemctl status yerbasd --no-pager\n'
+printf 'Wallet sync: sudo -u yerbas yerbas-cli -conf=/var/lib/yerbas/.yerbas/yerbas.conf -datadir=/var/lib/yerbas/.yerbas getblockchaininfo\n'
 printf 'Health check: sudo yerb-explorer-health\n'
 printf 'Update: sudo yerb-explorer-update\n'
 if [[ -n "$DOMAIN" ]]; then printf 'Explorer URL: http%s://%s\n' "$([[ "$ENABLE_SSL" =~ ^(y|yes)$ ]] && echo s)" "$DOMAIN"; else printf 'Explorer URL: http://SERVER_IP\n'; fi
-warn "Review $APP_DIR/settings.json and enter the RPC/database values expected by this explorer version before indexing."
+warn "Confirm settings.json uses the generated RPC and database values before indexing. Credentials are stored in $APP_DIR/.installer.env and $YERBAS_ENV_FILE."
