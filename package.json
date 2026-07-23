@@ -1,19 +1,58 @@
 {
   "name": "yerb-multi-explorer",
+  "version": "2.0.0",
   "private": true,
-  "version": "0.2.0",
-  "engines": { "node": ">=22" },
-  "workspaces": ["apps/api", "apps/web"],
+  "engines": {
+  "node": ">=22 <23",
+  "npm": ">=10"
+},
   "scripts": {
-    "dev": "concurrently -n api,web \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
-    "build": "npm run build -w apps/api && npm run build -w apps/web",
-    "start": "pm2-runtime ecosystem.config.cjs",
-    "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web",
-    "lint": "npm run lint -w apps/api && npm run lint -w apps/web"
+    "start": "npm run prestart && node --stack-size=10000 ./bin/cluster",
+    "stop": "node ./scripts/stop_explorer.js",
+    "start-instance": "npm run prestart && node --stack-size=10000 ./bin/instance",
+    "start-forever": "npm run prestart \"forever\" && forever start ./bin/cluster",
+    "stop-forever": "forever stop ./bin/cluster",
+    "start-pm2": "npm run prestart \"pm2\" && pm2 start ./bin/instance -i 0 --node-args=\"--stack-size=10000\"",
+    "start-pm2-debug": "npm run prestart \"pm2\" && pm2 start ./bin/instance -i 0 --node-args=\"--stack-size=10000\" && pm2 logs",
+    "stop-pm2": "pm2 stop ./bin/instance",
+    "test": "node ./node_modules/jasmine/bin/jasmine.js test/*Spec.js",
+    "prestart": "node ./scripts/prestart.js",
+    "sync-blocks": "node ./scripts/sync.js index update",
+    "sync-markets": "node ./scripts/sync.js market",
+    "sync-peers": "node ./scripts/sync.js peers",
+    "sync-masternodes": "node ./scripts/sync.js masternodes",
+    "check-blocks": "node ./scripts/sync.js index check",
+    "reindex": "node ./scripts/sync.js index reindex",
+    "reindex-rich": "node ./scripts/sync.js index reindex-rich",
+    "reindex-txcount": "node ./scripts/sync.js index reindex-txcount",
+    "reindex-last": "node ./scripts/sync.js index reindex-last",
+    "create-backup": "node ./scripts/create_backup.js",
+    "restore-backup": "node ./scripts/restore_backup.js",
+    "delete-database": "node ./scripts/delete_database.js",
+    "update-explorer": "node ./scripts/update_explorer.js"
   },
   "dependencies": {
-    "pm2": "^6.0.8",
-    "serve": "^14.2.4"
+    "async": "^3.2.2",
+    "bad-words": "^3.0.4",
+    "body-parser": "^1.19.0",
+    "cookie-parser": "^1.4.6",
+    "debug": ">=4.3.3",
+    "express": ">=4.17.1",
+    "intl": "^1.2.5",
+    "jsonminify": "^0.4.1",
+    "jstransformer-markdown-it": "^2.1.0",
+    "mongodb": "^4.2.1",
+    "mongoose": "^6.0.14",
+    "morgan": ">=1.10.0",
+    "pm2": "^5.2.0",
+    "postman-request": "^2.88.1-postman.30",
+    "pug": "~3.0.2",
+    "qr-image": "^3.2.0",
+    "readline-sync": "^1.4.10",
+    "sass": "^1.44.0",
+    "serve-favicon": "^2.5.0"
   },
-  "devDependencies": { "concurrently": "^9.1.2" }
+  "devDependencies": {
+    "jasmine": ">=3.6.3"
+  }
 }
