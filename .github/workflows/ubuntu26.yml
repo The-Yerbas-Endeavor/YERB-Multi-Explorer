@@ -2,9 +2,13 @@ name: Ubuntu 26 Compatibility
 
 on:
   push:
-    branches: [ubuntu-26]
+    branches:
+      - main
+      - import-explorer
   pull_request:
-    branches: [master]
+    branches: 
+      - main
+      - import-explorer
   workflow_dispatch:
 
 permissions:
@@ -25,7 +29,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         shell: bash
