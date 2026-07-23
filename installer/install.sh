@@ -127,9 +127,10 @@ EOF
 chown "$APP_USER:$APP_USER" "$APP_DIR/ecosystem.config.cjs"
 
 info "Configuring PM2 startup"
-sudo -u "$APP_USER" env HOME="/home/$APP_USER" pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
-sudo -u "$APP_USER" env HOME="/home/$APP_USER" bash -lc "cd '$APP_DIR' && pm2 start ecosystem.config.cjs"
-sudo -u "$APP_USER" env HOME="/home/$APP_USER" pm2 save
+PM2_HOME_DIR="/home/${APP_USER}/.pm2"
+sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" bash -lc "cd '$APP_DIR' && pm2 start ecosystem.config.cjs"
+sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 save
 PM2_BIN="$(command -v pm2)"
 cat > /etc/systemd/system/pm2-${APP_USER}.service <<EOF
 [Unit]
@@ -140,12 +141,13 @@ Requires=mongod.service
 [Service]
 Type=forking
 User=${APP_USER}
+Environment=HOME=/home/${APP_USER}
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PM2_HOME=${PM2_HOME_DIR}
+PIDFile=${PM2_HOME_DIR}/pm2.pid
 LimitNOFILE=infinity
 LimitNPROC=infinity
 LimitCORE=infinity
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=PM2_HOME=/home/${APP_USER}/.pm2
-PIDFile=/home/${APP_USER}/.pm2/pm2.pid
 Restart=on-failure
 ExecStart=${PM2_BIN} resurrect
 ExecReload=${PM2_BIN} reload all
@@ -155,7 +157,11 @@ ExecStop=${PM2_BIN} kill
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
+systemctl disable --now "pm2-${APP_USER}" >/dev/null 2>&1 || true
+sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 kill >/dev/null 2>&1 || true
+rm -f "${PM2_HOME_DIR}/pm2.pid"
 systemctl enable --now "pm2-${APP_USER}"
+systemctl is-active --quiet "pm2-${APP_USER}" || die "PM2 systemd service failed. Check: journalctl -u pm2-${APP_USER} -n 100"
 
 info "Configuring Nginx"
 SERVER_NAME="${DOMAIN:-_}"
@@ -219,7 +225,8 @@ info "Running health checks"
 sleep 5
 systemctl is-active --quiet mongod && ok "MongoDB is running"
 systemctl is-active --quiet nginx && ok "Nginx is running"
-sudo -u "$APP_USER" env HOME="/home/$APP_USER" pm2 describe "$APP_NAME" >/dev/null && ok "Explorer is registered with PM2"
+systemctl is-active --quiet "pm2-${APP_USER}" && ok "PM2 systemd service is running"
+sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 describe "$APP_NAME" >/dev/null && ok "Explorer is registered with PM2"
 
 printf '\nInstallation complete.\n'
 printf 'Application directory: %s\n' "$APP_DIR"
