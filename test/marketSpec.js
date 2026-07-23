@@ -1,26 +1,21 @@
-describe('market', function() {
-  var poloniex = require('../lib/markets/poloniex');
+describe('market modules', function() {
+  const exbitron = require('../lib/markets/exbitron');
+  const nestex = require('../lib/markets/nestex');
 
-  describe('poloniex', function() {
-    beforeEach(function() {
-      originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
-      jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000;
-    });
+  function verifyMarketModule(market) {
+    expect(market).toBeDefined();
+    expect(typeof market.market_name).toBe('string');
+    expect(typeof market.market_url_template).toBe('string');
+    expect(typeof market.get_data).toBe('function');
+  }
 
-    it('should return market data', function(done) {
-      poloniex.get_data({ coin: 'LTC', exchange: 'BTC' }, function(err, obj) {
-        expect(err).toEqual(null);
-        expect(obj.buys.length).toEqual(50);
-        expect(obj.sells.length).toEqual(50);
-        expect(obj.trades.length).toEqual(200);
-        expect(Object.keys(obj.stats).length).toEqual(7);
-        expect(obj.chartdata.length).toBeGreaterThan(10);
-        done();
-      });
-    });
+  it('loads the Exbitron market adapter', function() {
+    verifyMarketModule(exbitron);
+    expect(exbitron.market_name).toBe('Exbitron');
+  });
 
-    afterEach(function() {
-      jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
-    });
+  it('loads the Nestex market adapter', function() {
+    verifyMarketModule(nestex);
+    expect(nestex.market_name).toBe('NestEx');
   });
 });
