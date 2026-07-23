@@ -6,12 +6,14 @@ Production installer for YERB Multi-Explorer on Ubuntu 26.04 LTS.
 
 - Node.js 22 and npm
 - PM2 with a systemd startup service
-- MongoDB 8 in a persistent Docker container bound to localhost
+- Native MongoDB 8 service bound to `127.0.0.1`
 - Nginx reverse proxy and API rate limiting
 - Optional Let's Encrypt TLS
 - UFW firewall and unattended security updates
 - Dedicated `yerbexplorer` service account
 - Update, health-check, and uninstall commands
+
+**No Docker or container runtime is installed or used.**
 
 ## Install
 
@@ -27,9 +29,26 @@ To install another branch:
 sudo BRANCH=feature/modern-dashboard bash installer/install.sh
 ```
 
+## MongoDB on Ubuntu 26.04
+
+MongoDB 8 currently publishes native Ubuntu packages for Ubuntu 24.04 (`noble`). The installer uses that official native repository on Ubuntu 26.04 and runs MongoDB directly as the `mongod` systemd service. MongoDB is configured to listen only on localhost.
+
+Verify it with:
+
+```bash
+systemctl status mongod
+mongosh --quiet --eval 'db.runCommand({ ping: 1 })'
+```
+
 ## Important configuration step
 
 The repository's settings template is copied to `/opt/yerb-multi-explorer/settings.json` when available. Review that file and enter the RPC and MongoDB fields expected by the explorer version before running the indexer.
+
+Use this local MongoDB connection unless the explorer schema requires separate fields:
+
+```text
+mongodb://127.0.0.1:27017/explorerdb
+```
 
 RPC answers are stored with root/service-user-only permissions in:
 
@@ -77,9 +96,10 @@ sudo -u yerbexplorer npm run sync-markets
 | Nginx site | `/etc/nginx/sites-available/yerb-multi-explorer` |
 | Installer log | `/var/log/yerb-multi-explorer-install.log` |
 | PM2 state | `/home/yerbexplorer/.pm2` |
-| MongoDB volume | `yerb-mongodb-data` |
+| MongoDB data | `/var/lib/mongodb` |
+| MongoDB configuration | `/etc/mongod.conf` |
 | Update backups | `/var/backups/yerb-multi-explorer` |
 
 ## Notes
 
-MongoDB runs in Docker to avoid depending on whether a native MongoDB repository currently publishes Ubuntu 26.04 packages. Node.js 22 is installed from NodeSource's `nodistro` repository. The installer also applies the Express-compatible regular-expression wildcard route when it finds the legacy `app.get('*', ...)` form.
+The installer applies the Express-compatible regular-expression wildcard route when it finds the legacy `app.get('*', ...)` form. It does not install Docker, Podman, containerd, or any container-based dependency.
