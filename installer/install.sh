@@ -7,8 +7,8 @@ APP_DIR="/opt/yerb-multi-explorer"
 REPO_URL="https://github.com/The-Yerbas-Endeavor/YERB-Multi-Explorer.git"
 BRANCH="${BRANCH:-main}"
 APP_PORT="${APP_PORT:-3001}"
-MONGO_CONTAINER="yerb-mongodb"
-MONGO_VOLUME="yerb-mongodb-data"
+MONGO_VERSION="${MONGO_VERSION:-8.0}"
+MONGO_DB="${MONGO_DB:-explorerdb}"
 LOG_FILE="/var/log/${APP_NAME}-install.log"
 
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -39,11 +39,22 @@ ENABLE_SSL="${ENABLE_SSL,,}"
 info "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg git nginx ufw jq build-essential python3 docker.io unattended-upgrades certbot python3-certbot-nginx
-systemctl enable --now docker nginx
+apt-get install -y ca-certificates curl gnupg git nginx ufw jq build-essential python3 unattended-upgrades certbot python3-certbot-nginx
+systemctl enable --now nginx
+
+info "Installing native MongoDB ${MONGO_VERSION}"
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSL "https://www.mongodb.org/static/pgp/server-${MONGO_VERSION}.asc" | gpg --dearmor --yes -o "/etc/apt/keyrings/mongodb-server-${MONGO_VERSION}.gpg"
+cat > "/etc/apt/sources.list.d/mongodb-org-${MONGO_VERSION}.list" <<EOF
+deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-${MONGO_VERSION}.gpg] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/${MONGO_VERSION} multiverse
+EOF
+apt-get update
+apt-get install -y mongodb-org
+sed -i 's/^\([[:space:]]*bindIp:[[:space:]]*\).*/\1127.0.0.1/' /etc/mongod.conf
+systemctl enable --now mongod
+systemctl is-active --quiet mongod || die "MongoDB failed to start. Check: journalctl -u mongod -n 100"
 
 info "Installing Node.js 22"
-install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
 echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
 apt-get update
@@ -53,17 +64,6 @@ npm install -g pm2
 
 info "Creating service account"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "/home/$APP_USER" --shell /bin/bash "$APP_USER"
-usermod -aG docker "$APP_USER"
-
-info "Starting MongoDB 8 in a persistent local container"
-docker volume inspect "$MONGO_VOLUME" >/dev/null 2>&1 || docker volume create "$MONGO_VOLUME" >/dev/null
-if docker container inspect "$MONGO_CONTAINER" >/dev/null 2>&1; then
-  docker start "$MONGO_CONTAINER" >/dev/null || true
-else
-  docker run -d --name "$MONGO_CONTAINER" --restart unless-stopped \
-    -p 127.0.0.1:27017:27017 \
-    -v "$MONGO_VOLUME:/data/db" mongo:8 >/dev/null
-fi
 
 info "Installing explorer source"
 if [[ -d "$APP_DIR/.git" ]]; then
@@ -102,6 +102,7 @@ RPC_USER=$RPC_USER
 RPC_PASSWORD=$RPC_PASSWORD
 APP_PORT=$APP_PORT
 DOMAIN=$DOMAIN
+MONGO_URI=mongodb://127.0.0.1:27017/$MONGO_DB
 EOF
 chmod 600 "$APP_DIR/.installer.env"
 chown "$APP_USER:$APP_USER" "$APP_DIR/.installer.env"
@@ -133,8 +134,8 @@ PM2_BIN="$(command -v pm2)"
 cat > /etc/systemd/system/pm2-${APP_USER}.service <<EOF
 [Unit]
 Description=PM2 process manager for ${APP_USER}
-After=network.target docker.service
-Requires=docker.service
+After=network.target mongod.service
+Requires=mongod.service
 
 [Service]
 Type=forking
@@ -216,13 +217,13 @@ install -m 0755 "$APP_DIR/installer/uninstall.sh" /usr/local/sbin/yerb-explorer-
 
 info "Running health checks"
 sleep 5
-systemctl is-active --quiet docker && ok "Docker is running"
-docker ps --format '{{.Names}}' | grep -qx "$MONGO_CONTAINER" && ok "MongoDB is running"
+systemctl is-active --quiet mongod && ok "MongoDB is running"
 systemctl is-active --quiet nginx && ok "Nginx is running"
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" pm2 describe "$APP_NAME" >/dev/null && ok "Explorer is registered with PM2"
 
 printf '\nInstallation complete.\n'
 printf 'Application directory: %s\n' "$APP_DIR"
+printf 'MongoDB: native mongod service on 127.0.0.1:27017\n'
 printf 'PM2 logs: sudo -u %s PM2_HOME=/home/%s/.pm2 pm2 logs %s\n' "$APP_USER" "$APP_USER" "$APP_NAME"
 printf 'Health check: sudo yerb-explorer-health\n'
 printf 'Update: sudo yerb-explorer-update\n'
