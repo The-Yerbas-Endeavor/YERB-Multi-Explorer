@@ -9,6 +9,7 @@ BRANCH="${BRANCH:-main}"
 APP_PORT="${APP_PORT:-3001}"
 MONGO_VERSION="${MONGO_VERSION:-8.0}"
 MONGO_DB="${MONGO_DB:-explorerdb}"
+MONGO_USER="${MONGO_USER:-yerbas}"
 LOG_FILE="/var/log/${APP_NAME}-install.log"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 YERBAS_ENV_FILE="/etc/yerbas/explorer.env"
@@ -21,14 +22,38 @@ ok() { printf '\033[1;32m[OK]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 
+prompt_url_safe_password() {
+  local prompt="$1"
+  local variable_name="$2"
+  local first second
+  while true; do
+    read -r -s -p "$prompt" first
+    echo
+    read -r -s -p "Confirm password: " second
+    echo
+    [[ "$first" == "$second" ]] || { warn "Passwords do not match."; continue; }
+    [[ ${#first} -ge 16 ]] || { warn "Password must be at least 16 characters."; continue; }
+    [[ "$first" =~ ^[A-Za-z0-9._~-]+$ ]] || { warn "Use URL-safe characters only: A-Z a-z 0-9 . _ ~ -"; continue; }
+    printf -v "$variable_name" '%s' "$first"
+    break
+  done
+}
+
 [[ ${EUID} -eq 0 ]] || die "Run this installer with sudo."
 source /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || die "This installer supports Ubuntu only."
 [[ "${VERSION_ID:-}" == "26.04" ]] || warn "Designed for Ubuntu 26.04; detected ${PRETTY_NAME:-unknown}."
 
 read -r -p "Explorer domain (example: explorer.yerbas.org, blank for IP-only): " DOMAIN
+read -r -p "Yerbas RPC username [yerbasrpc]: " RPC_USER
+RPC_USER="${RPC_USER:-yerbasrpc}"
+[[ "$RPC_USER" =~ ^[A-Za-z0-9._~-]+$ ]] || die "Yerbas RPC username must use URL-safe characters only."
+prompt_url_safe_password "Yerbas RPC password: " RPC_PASSWORD
+prompt_url_safe_password "MongoDB password for user '${MONGO_USER}': " MONGO_PASSWORD
 read -r -p "Install Let's Encrypt SSL when DNS is ready? [y/N]: " ENABLE_SSL
 ENABLE_SSL="${ENABLE_SSL,,}"
+
+export RPC_USER RPC_PASSWORD
 
 info "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -48,14 +73,34 @@ RPC_HOST="${RPC_HOST:-127.0.0.1}"
 info "Installing native MongoDB ${MONGO_VERSION}"
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL "https://www.mongodb.org/static/pgp/server-${MONGO_VERSION}.asc" | gpg --dearmor --yes -o "/etc/apt/keyrings/mongodb-server-${MONGO_VERSION}.gpg"
-cat > "/etc/apt/sources.list.d/mongodb-org-${MONGO_VERSION}.list" <<EOF
+cat > "/etc/apt/sources.list.d/mongodb-org-${MONGO_VERSION}.list" <<EOF_MONGO_REPO
 deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-${MONGO_VERSION}.gpg] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/${MONGO_VERSION} multiverse
-EOF
+EOF_MONGO_REPO
 apt-get update
 apt-get install -y mongodb-org
 sed -i 's/^\([[:space:]]*bindIp:[[:space:]]*\).*/\1127.0.0.1/' /etc/mongod.conf
 systemctl enable --now mongod
 systemctl is-active --quiet mongod || die "MongoDB failed to start. Check: journalctl -u mongod -n 100 --no-pager -l"
+
+info "Creating MongoDB user ${MONGO_USER}"
+mongosh --quiet --eval "
+const database = db.getSiblingDB('${MONGO_DB}');
+if (database.getUser('${MONGO_USER}')) {
+  database.updateUser('${MONGO_USER}', {
+    pwd: '${MONGO_PASSWORD}',
+    roles: [{ role: 'readWrite', db: '${MONGO_DB}' }]
+  });
+} else {
+  database.createUser({
+    user: '${MONGO_USER}',
+    pwd: '${MONGO_PASSWORD}',
+    roles: [{ role: 'readWrite', db: '${MONGO_DB}' }]
+  });
+}
+"
+MONGO_URI="mongodb://${MONGO_USER}:${MONGO_PASSWORD}@127.0.0.1:27017/${MONGO_DB}?authSource=${MONGO_DB}"
+mongosh "$MONGO_URI" --quiet --eval 'if (db.runCommand({ ping: 1 }).ok !== 1) quit(1)' || die "MongoDB credential test failed."
+ok "MongoDB credentials verified"
 
 info "Installing Node.js 22"
 curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
@@ -79,6 +124,11 @@ else
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
+info "Replacing legacy eIquidus branding with Yerbas"
+while IFS= read -r -d '' file; do
+  sed -i -e 's/eIquidus/Yerbas/g' -e 's/eiquidus/yerbas/g' "$file"
+done < <(grep -RIlZ --exclude-dir=.git -e 'eIquidus' -e 'eiquidus' "$APP_DIR" 2>/dev/null || true)
+
 info "Installing locked Node dependencies"
 sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && npm ci"
 
@@ -98,20 +148,43 @@ if [[ ! -f "$APP_DIR/settings.json" ]]; then
   fi
 fi
 
-cat > "$APP_DIR/.installer.env" <<EOF
+if [[ -f "$APP_DIR/settings.json" ]]; then
+  sed -i \
+    -e "s#\"user\"[[:space:]]*:[[:space:]]*\"[^\"]*\"#\"user\": \"${MONGO_USER}\"#" \
+    -e "s#\"password\"[[:space:]]*:[[:space:]]*\"[^\"]*\"#\"password\": \"${MONGO_PASSWORD}\"#" \
+    -e "0,/\"host\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/s//\"host\": \"${RPC_HOST}\"/" \
+    -e "0,/\"port\"[[:space:]]*:[[:space:]]*[0-9][0-9]*/s//\"port\": ${RPC_PORT}/" \
+    -e "0,/\"username\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/s//\"username\": \"${RPC_USER}\"/" \
+    "$APP_DIR/settings.json"
+  python3 - "$APP_DIR/settings.json" "$RPC_PASSWORD" <<'PY'
+import re
+import sys
+path, rpc_password = sys.argv[1:]
+text = open(path, encoding='utf-8').read()
+wallet = re.search(r'("wallet"\s*:\s*\{.*?"password"\s*:\s*")([^"]*)(")', text, re.S)
+if not wallet:
+    raise SystemExit('Unable to locate wallet password in settings.json')
+text = text[:wallet.start(2)] + rpc_password + text[wallet.end(2):]
+open(path, 'w', encoding='utf-8').write(text)
+PY
+fi
+
+cat > "$APP_DIR/.installer.env" <<EOF_ENV
 RPC_HOST=$RPC_HOST
 RPC_PORT=$RPC_PORT
 RPC_USER=$RPC_USER
 RPC_PASSWORD=$RPC_PASSWORD
 APP_PORT=$APP_PORT
 DOMAIN=$DOMAIN
-MONGO_URI=mongodb://127.0.0.1:27017/$MONGO_DB
+MONGO_USER=$MONGO_USER
+MONGO_PASSWORD=$MONGO_PASSWORD
+MONGO_URI=$MONGO_URI
 YERBAS_VERSION=${YERBAS_VERSION:-unknown}
-EOF
+EOF_ENV
 chmod 600 "$APP_DIR/.installer.env"
 chown "$APP_USER:$APP_USER" "$APP_DIR/.installer.env"
 
-cat > "$APP_DIR/ecosystem.config.cjs" <<EOF
+cat > "$APP_DIR/ecosystem.config.cjs" <<EOF_PM2
 module.exports = {
   apps: [{
     name: '${APP_NAME}',
@@ -130,11 +203,11 @@ module.exports = {
       RPC_PORT: '${RPC_PORT}',
       RPC_USER: '${RPC_USER}',
       RPC_PASSWORD: '${RPC_PASSWORD}',
-      MONGO_URI: 'mongodb://127.0.0.1:27017/${MONGO_DB}'
+      MONGO_URI: '${MONGO_URI}'
     }
   }]
 };
-EOF
+EOF_PM2
 chown "$APP_USER:$APP_USER" "$APP_DIR/ecosystem.config.cjs"
 chmod 600 "$APP_DIR/ecosystem.config.cjs"
 
@@ -144,7 +217,7 @@ sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 dele
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" bash -lc "cd '$APP_DIR' && pm2 start ecosystem.config.cjs"
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 save
 PM2_BIN="$(command -v pm2)"
-cat > /etc/systemd/system/pm2-${APP_USER}.service <<EOF
+cat > /etc/systemd/system/pm2-${APP_USER}.service <<EOF_PM2_SERVICE
 [Unit]
 Description=PM2 process manager for ${APP_USER}
 After=network.target mongod.service yerbasd.service
@@ -167,7 +240,7 @@ ExecStop=${PM2_BIN} kill
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF_PM2_SERVICE
 systemctl daemon-reload
 systemctl disable --now "pm2-${APP_USER}" >/dev/null 2>&1 || true
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 kill >/dev/null 2>&1 || true
@@ -177,7 +250,7 @@ systemctl is-active --quiet "pm2-${APP_USER}" || die "PM2 systemd service failed
 
 info "Configuring Nginx"
 SERVER_NAME="${DOMAIN:-_}"
-cat > /etc/nginx/sites-available/yerb-multi-explorer <<EOF
+cat > /etc/nginx/sites-available/yerb-multi-explorer <<EOF_NGINX
 limit_req_zone \$binary_remote_addr zone=yerb_api:10m rate=20r/s;
 
 server {
@@ -212,7 +285,7 @@ server {
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
 }
-EOF
+EOF_NGINX
 ln -sfn /etc/nginx/sites-available/yerb-multi-explorer /etc/nginx/sites-enabled/yerb-multi-explorer
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
@@ -236,22 +309,26 @@ install -m 0755 "$APP_DIR/installer/install-yerbas-core.sh" /usr/local/sbin/yerb
 
 info "Running health checks"
 sleep 5
-systemctl is-active --quiet yerbasd && ok "Yerbas Core is running"
-systemctl is-active --quiet mongod && ok "MongoDB is running"
-systemctl is-active --quiet nginx && ok "Nginx is running"
-systemctl is-active --quiet "pm2-${APP_USER}" && ok "PM2 systemd service is running"
-sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 describe "$APP_NAME" >/dev/null && ok "Explorer is registered with PM2"
+systemctl is-active --quiet yerbasd || die "Yerbas Core is not running."
+systemctl is-active --quiet mongod || die "MongoDB is not running."
+systemctl is-active --quiet nginx || die "Nginx is not running."
+systemctl is-active --quiet "pm2-${APP_USER}" || die "PM2 systemd service is not running."
+sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 describe "$APP_NAME" 2>/dev/null | grep -q 'online' || die "Explorer failed to stay online. Check PM2 logs."
+curl -fsS --max-time 15 "http://127.0.0.1:${APP_PORT}/" >/dev/null || die "Explorer is not responding on port ${APP_PORT}."
+ok "Yerbas Core is running"
+ok "MongoDB authenticated connection is working"
+ok "Nginx is running"
+ok "Explorer is online and responding"
 
 printf '\nInstallation complete.\n'
 printf 'Application directory: %s\n' "$APP_DIR"
 printf 'Yerbas Core: %s, native yerbasd service\n' "${YERBAS_VERSION:-installed}"
 printf 'Yerbas data directory: /var/lib/yerbas/.yerbas\n'
 printf 'Yerbas RPC: 127.0.0.1:%s\n' "$RPC_PORT"
-printf 'MongoDB: native mongod service on 127.0.0.1:27017\n'
+printf 'MongoDB: authenticated user %s on 127.0.0.1:27017/%s\n' "$MONGO_USER" "$MONGO_DB"
 printf 'PM2 logs: sudo -u %s PM2_HOME=/home/%s/.pm2 pm2 logs %s\n' "$APP_USER" "$APP_USER" "$APP_NAME"
 printf 'Wallet status: sudo systemctl status yerbasd --no-pager\n'
 printf 'Wallet sync: sudo -u yerbas yerbas-cli -conf=/var/lib/yerbas/.yerbas/yerbas.conf -datadir=/var/lib/yerbas/.yerbas getblockchaininfo\n'
 printf 'Health check: sudo yerb-explorer-health\n'
 printf 'Update: sudo yerb-explorer-update\n'
 if [[ -n "$DOMAIN" ]]; then printf 'Explorer URL: http%s://%s\n' "$([[ "$ENABLE_SSL" =~ ^(y|yes)$ ]] && echo s)" "$DOMAIN"; else printf 'Explorer URL: http://SERVER_IP\n'; fi
-warn "Confirm settings.json uses the generated RPC and database values before indexing. Credentials are stored in $APP_DIR/.installer.env and $YERBAS_ENV_FILE."
