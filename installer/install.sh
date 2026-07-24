@@ -100,7 +100,7 @@ fi
 ok "MongoDB is accepting connections"
 
 info "Creating MongoDB user ${MONGO_USER}"
-mongosh --quiet --eval "
+mongosh --host 127.0.0.1 --port 27017 --quiet --eval "
 const database = db.getSiblingDB('${MONGO_DB}');
 if (database.getUser('${MONGO_USER}')) {
   database.updateUser('${MONGO_USER}', {
@@ -151,7 +151,7 @@ sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && npm ci"
 
 if grep -q "app.get('\*'" "$APP_DIR/lib/nodeapi.js"; then
   warn "Applying Express 5-compatible wildcard route to lib/nodeapi.js"
-  sed -i "s/app\.get('\*', hasAccess/app.get(\/\.\*\/, hasAccess/" "$APP_DIR/lib/nodeapi.js"
+  sed -i "s/app\.get('\*', hasAccess/app.get(\/\.\*\//, hasAccess/" "$APP_DIR/lib/nodeapi.js"
 fi
 
 info "Creating explorer configuration"
@@ -161,29 +161,41 @@ if [[ ! -f "$APP_DIR/settings.json" ]]; then
   elif [[ -f "$APP_DIR/settings.json.example" ]]; then
     cp "$APP_DIR/settings.json.example" "$APP_DIR/settings.json"
   else
-    warn "No settings template was found. The explorer will use defaults until settings.json is created."
+    die "No settings template was found."
   fi
 fi
 
 if [[ -f "$APP_DIR/settings.json" ]]; then
-  sed -i \
-    -e "s#\"user\"[[:space:]]*:[[:space:]]*\"[^\"]*\"#\"user\": \"${MONGO_USER}\"#" \
-    -e "s#\"password\"[[:space:]]*:[[:space:]]*\"[^\"]*\"#\"password\": \"${MONGO_PASSWORD}\"#" \
-    -e "0,/\"host\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/s//\"host\": \"${RPC_HOST}\"/" \
-    -e "0,/\"port\"[[:space:]]*:[[:space:]]*[0-9][0-9]*/s//\"port\": ${RPC_PORT}/" \
-    -e "0,/\"username\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/s//\"username\": \"${RPC_USER}\"/" \
-    "$APP_DIR/settings.json"
-  python3 - "$APP_DIR/settings.json" "$RPC_PASSWORD" <<'PY'
-import re
-import sys
-path, rpc_password = sys.argv[1:]
-text = open(path, encoding='utf-8').read()
-wallet = re.search(r'("wallet"\s*:\s*\{.*?"password"\s*:\s*")([^"]*)(")', text, re.S)
-if not wallet:
-    raise SystemExit('Unable to locate wallet password in settings.json')
-text = text[:wallet.start(2)] + rpc_password + text[wallet.end(2):]
-open(path, 'w', encoding='utf-8').write(text)
-PY
+  SETTINGS_TMP="$(mktemp)"
+  jq \
+    --arg mongo_user "$MONGO_USER" \
+    --arg mongo_password "$MONGO_PASSWORD" \
+    --arg mongo_database "$MONGO_DB" \
+    --arg mongo_address "127.0.0.1" \
+    --argjson mongo_port 27017 \
+    --arg rpc_host "$RPC_HOST" \
+    --argjson rpc_port "$RPC_PORT" \
+    --arg rpc_user "$RPC_USER" \
+    --arg rpc_password "$RPC_PASSWORD" \
+    '.dbsettings.user = $mongo_user
+     | .dbsettings.password = $mongo_password
+     | .dbsettings.database = $mongo_database
+     | .dbsettings.address = $mongo_address
+     | .dbsettings.port = $mongo_port
+     | .wallet.host = $rpc_host
+     | .wallet.port = $rpc_port
+     | .wallet.username = $rpc_user
+     | .wallet.password = $rpc_password' \
+    "$APP_DIR/settings.json" > "$SETTINGS_TMP" || {
+      rm -f "$SETTINGS_TMP"
+      die "Unable to update settings.json with jq."
+    }
+  jq empty "$SETTINGS_TMP" || {
+    rm -f "$SETTINGS_TMP"
+    die "Generated settings.json is not valid JSON."
+  }
+  install -m 0600 -o "$APP_USER" -g "$APP_USER" "$SETTINGS_TMP" "$APP_DIR/settings.json"
+  rm -f "$SETTINGS_TMP"
 fi
 
 cat > "$APP_DIR/.installer.env" <<EOF_ENV
@@ -325,13 +337,31 @@ install -m 0755 "$APP_DIR/installer/uninstall.sh" /usr/local/sbin/yerb-explorer-
 install -m 0755 "$APP_DIR/installer/install-yerbas-core.sh" /usr/local/sbin/yerbas-core-install 2>/dev/null || true
 
 info "Running health checks"
-sleep 5
 systemctl is-active --quiet yerbasd || die "Yerbas Core is not running."
 systemctl is-active --quiet mongod || die "MongoDB is not running."
 systemctl is-active --quiet nginx || die "Nginx is not running."
 systemctl is-active --quiet "pm2-${APP_USER}" || die "PM2 systemd service is not running."
-sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 describe "$APP_NAME" 2>/dev/null | grep -q 'online' || die "Explorer failed to stay online. Check PM2 logs."
-curl -fsS --max-time 15 "http://127.0.0.1:${APP_PORT}/" >/dev/null || die "Explorer is not responding on port ${APP_PORT}."
+mongosh "$MONGO_URI" --quiet --eval 'if (db.runCommand({ ping: 1 }).ok !== 1) quit(1)' || die "MongoDB authenticated connection failed."
+
+info "Waiting for explorer HTTP service"
+EXPLORER_READY=false
+for _ in $(seq 1 60); do
+  if curl -fsS --max-time 5 "http://127.0.0.1:${APP_PORT}/" >/dev/null 2>&1; then
+    EXPLORER_READY=true
+    break
+  fi
+  if ! sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" \
+      pm2 describe "$APP_NAME" 2>/dev/null | grep -q 'online'; then
+    break
+  fi
+  sleep 2
+done
+if [[ "$EXPLORER_READY" != true ]]; then
+  sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" pm2 status || true
+  sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="$PM2_HOME_DIR" \
+    pm2 logs "$APP_NAME" --lines 100 --nostream || true
+  die "Explorer failed to start on port ${APP_PORT}."
+fi
 ok "Yerbas Core is running"
 ok "MongoDB authenticated connection is working"
 ok "Nginx is running"
