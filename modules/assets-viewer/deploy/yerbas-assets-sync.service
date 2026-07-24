@@ -1,0 +1,17 @@
+[Unit]
+Description=Sync Yerbas asset explorer cache
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/Yerbas-Assets-Viewer
+ExecStart=/var/www/Yerbas-Assets-Viewer/scripts/run-sync.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

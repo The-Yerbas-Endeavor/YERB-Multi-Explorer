@@ -1,0 +1,20 @@
+[Unit]
+Description=Yerbas Asset Explorer real-time activity index
+After=network-online.target yerbasd.service
+Wants=network-online.target
+Requires=yerbasd.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/Yerbas-Assets-Viewer
+ExecStartPre=/usr/bin/test -f /var/www/Yerbas-Assets-Viewer/config.php
+ExecStartPre=/usr/bin/test -x /var/www/Yerbas-Assets-Viewer/scripts/sync-activity.php
+ExecStart=/usr/bin/php /var/www/Yerbas-Assets-Viewer/scripts/sync-activity.php
+TimeoutStartSec=240
+Nice=5
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/www/Yerbas-Assets-Viewer/storage
