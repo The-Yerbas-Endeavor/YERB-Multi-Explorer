@@ -10,7 +10,7 @@ backup_dir="/var/backups/yerb-multi-explorer/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$backup_dir"
 cp -a "$APP_DIR/settings.json" "$backup_dir/" 2>/dev/null || true
 cp -a "$APP_DIR/.installer.env" "$backup_dir/" 2>/dev/null || true
-cp -a /var/lib/yerbas-assets/assets.sqlite "$backup_dir/" 2>/dev/null || true
+cp -a "$APP_DIR/modules/assets-viewer/storage/assets.sqlite" "$backup_dir/" 2>/dev/null || true
 sudo -u "$APP_USER" git -C "$APP_DIR" fetch origin
 sudo -u "$APP_USER" git -C "$APP_DIR" checkout "$BRANCH"
 sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
@@ -31,6 +31,7 @@ if [[ -d "$APP_DIR/modules/assets-viewer" && -f "$APP_DIR/installer/integrate-as
   APP_DIR="$APP_DIR" APP_USER="$APP_USER" bash "$APP_DIR/installer/integrate-assets.sh"
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+chown -R www-data:www-data "$APP_DIR/modules/assets-viewer/storage" 2>/dev/null || true
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="/home/$APP_USER/.pm2" pm2 reload "$APP_NAME" --update-env
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="/home/$APP_USER/.pm2" pm2 save
 sleep 5
