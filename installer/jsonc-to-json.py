@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Convert the explorer's JSON-with-comments template into strict JSON."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+
+def strip_comments(source: str) -> str:
+    output: list[str] = []
+    index = 0
+    in_string = False
+    escaped = False
+
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+
+        if char == "/" and nxt == "/":
+            index += 2
+            while index < len(source) and source[index] not in "\r\n":
+                index += 1
+            continue
+
+        if char == "/" and nxt == "*":
+            index += 2
+            while index + 1 < len(source) and not (
+                source[index] == "*" and source[index + 1] == "/"
+            ):
+                if source[index] in "\r\n":
+                    output.append(source[index])
+                index += 1
+            if index + 1 >= len(source):
+                raise ValueError("Unterminated block comment")
+            index += 2
+            continue
+
+        output.append(char)
+        index += 1
+
+    return "".join(output)
+
+
+def main() -> int:
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} INPUT OUTPUT", file=sys.stderr)
+        return 2
+
+    input_path = Path(sys.argv[1])
+    output_path = Path(sys.argv[2])
+
+    try:
+        raw = input_path.read_text(encoding="utf-8")
+        parsed = json.loads(strip_comments(raw))
+        output_path.write_text(
+            json.dumps(parsed, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Unable to convert {input_path}: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
