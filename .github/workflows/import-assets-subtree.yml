@@ -1,0 +1,65 @@
+name: Import Yerbas Assets Viewer
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Yerbas-Assets-Viewer branch or tag
+        required: true
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Import Assets Viewer as subtree
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          git remote add assets-viewer https://github.com/The-Yerbas-Endeavor/Yerbas-Assets-Viewer.git
+          git fetch assets-viewer "$SOURCE_REF"
+          if [ -d modules/assets-viewer ]; then
+            git subtree pull --prefix=modules/assets-viewer assets-viewer "$SOURCE_REF" --squash
+          else
+            git subtree add --prefix=modules/assets-viewer assets-viewer "$SOURCE_REF" --squash
+          fi
+
+      - name: Apply Portal integration
+        run: |
+          chmod +x installer/integrate-assets.sh
+          ./installer/integrate-assets.sh --repository
+
+      - name: Commit integration files
+        run: |
+          git add -A
+          git diff --cached --quiet || git commit -m "Integrate Yerbas Assets Viewer"
+
+      - name: Push integration branch
+        run: |
+          branch="agent/merge-assets-viewer-${GITHUB_RUN_ID}"
+          git checkout -b "$branch"
+          git push origin "$branch"
+          echo "BRANCH=$branch" >> "$GITHUB_ENV"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Merge Yerbas Assets Viewer into Portal" \
+            --body "Imports Yerbas-Assets-Viewer as a source-preserving subtree under modules/assets-viewer and enables same-domain /assets deployment, shared RPC configuration, synchronization, health checks, and Portal navigation."
