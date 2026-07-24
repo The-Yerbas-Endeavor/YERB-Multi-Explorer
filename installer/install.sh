@@ -82,6 +82,23 @@ sed -i 's/^\([[:space:]]*bindIp:[[:space:]]*\).*/\1127.0.0.1/' /etc/mongod.conf
 systemctl enable --now mongod
 systemctl is-active --quiet mongod || die "MongoDB failed to start. Check: journalctl -u mongod -n 100 --no-pager -l"
 
+info "Waiting for MongoDB to accept connections"
+MONGO_READY=false
+for _ in $(seq 1 60); do
+  if mongosh --host 127.0.0.1 --port 27017 --quiet --eval 'db.runCommand({ ping: 1 }).ok' 2>/dev/null | grep -q '^1$'; then
+    MONGO_READY=true
+    break
+  fi
+  sleep 2
+done
+
+if [[ "$MONGO_READY" != true ]]; then
+  systemctl status mongod --no-pager -l || true
+  journalctl -u mongod -n 100 --no-pager -l || true
+  die "MongoDB started but did not become ready on 127.0.0.1:27017."
+fi
+ok "MongoDB is accepting connections"
+
 info "Creating MongoDB user ${MONGO_USER}"
 mongosh --quiet --eval "
 const database = db.getSiblingDB('${MONGO_DB}');
