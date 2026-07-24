@@ -19,7 +19,13 @@ export INSTALLER_USER INSTALLER_UID INSTALLER_HOME
 info "Checking sudo access for ${INSTALLER_USER}"
 sudo -v || die "This account does not have working sudo privileges."
 
-TMP_DIR="$(mktemp -d)"
+# Ubuntu 26 commonly mounts /tmp as a small RAM-backed tmpfs. Bootstrap
+# archives and their extracted blockchain data must use the root disk instead.
+INSTALLER_WORK_ROOT="${INSTALLER_WORK_ROOT:-/var/tmp/yerbas-installer}"
+sudo install -d -m 1777 "$INSTALLER_WORK_ROOT"
+export TMPDIR="$INSTALLER_WORK_ROOT"
+
+TMP_DIR="$(mktemp -d "$INSTALLER_WORK_ROOT/launcher.XXXXXXXX")"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
@@ -43,7 +49,7 @@ path.write_text(text, encoding="utf-8")
 PY
 
 info "Starting privileged installation as ${INSTALLER_USER} via sudo"
-sudo --preserve-env=INSTALLER_USER,INSTALLER_UID,INSTALLER_HOME,BRANCH,APP_PORT,MONGO_VERSION,MONGO_DB,MONGO_USER,INSTALL_BOOTSTRAP,FORCE_BOOTSTRAP,KEEP_BOOTSTRAP_ARCHIVE \
+sudo --preserve-env=INSTALLER_USER,INSTALLER_UID,INSTALLER_HOME,BRANCH,APP_PORT,MONGO_VERSION,MONGO_DB,MONGO_USER,INSTALL_BOOTSTRAP,FORCE_BOOTSTRAP,KEEP_BOOTSTRAP_ARCHIVE,TMPDIR,INSTALLER_WORK_ROOT \
   bash "$TMP_DIR/install.sh"
 
 ok "Installation completed for sudo user ${INSTALLER_USER}"
