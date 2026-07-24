@@ -10,6 +10,7 @@ backup_dir="/var/backups/yerb-multi-explorer/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$backup_dir"
 cp -a "$APP_DIR/settings.json" "$backup_dir/" 2>/dev/null || true
 cp -a "$APP_DIR/.installer.env" "$backup_dir/" 2>/dev/null || true
+cp -a /var/lib/yerbas-assets/assets.sqlite "$backup_dir/" 2>/dev/null || true
 sudo -u "$APP_USER" git -C "$APP_DIR" fetch origin
 sudo -u "$APP_USER" git -C "$APP_DIR" checkout "$BRANCH"
 sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
@@ -25,9 +26,14 @@ if [[ -f "$APP_DIR/installer/apply-portal-navigation.py" ]]; then
   chmod 0755 "$APP_DIR/installer/apply-portal-navigation.py"
   python3 "$APP_DIR/installer/apply-portal-navigation.py" "$APP_DIR"
 fi
+if [[ -d "$APP_DIR/modules/assets-viewer" && -f "$APP_DIR/installer/integrate-assets.sh" ]]; then
+  chmod 0755 "$APP_DIR/installer/integrate-assets.sh"
+  APP_DIR="$APP_DIR" APP_USER="$APP_USER" bash "$APP_DIR/installer/integrate-assets.sh"
+fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="/home/$APP_USER/.pm2" pm2 reload "$APP_NAME" --update-env
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="/home/$APP_USER/.pm2" pm2 save
 sleep 5
 /usr/local/sbin/yerb-explorer-health || true
+curl -fsS http://127.0.0.1/assets/api/?resource=status >/dev/null 2>&1 || true
 echo "Update complete. Backup: $backup_dir"
