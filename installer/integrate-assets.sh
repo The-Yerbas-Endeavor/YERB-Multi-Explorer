@@ -2,9 +2,8 @@
 set -Eeuo pipefail
 
 APP_DIR="${APP_DIR:-/opt/yerb-multi-explorer}"
-ASSETS_SOURCE="$APP_DIR/modules/assets-viewer"
-ASSETS_DIR="${ASSETS_DIR:-/opt/yerbas-portal-assets}"
-ASSETS_DATA="${ASSETS_DATA:-/var/lib/yerbas-assets}"
+ASSETS_DIR="$APP_DIR/modules/assets-viewer"
+ASSETS_DATA="$ASSETS_DIR/storage"
 APP_USER="${APP_USER:-yerbexplorer}"
 RPC_HOST="${RPC_HOST:-127.0.0.1}"
 RPC_PORT="${RPC_PORT:-8766}"
@@ -13,14 +12,13 @@ RPC_PASSWORD="${RPC_PASSWORD:-}"
 MODE="${1:-deploy}"
 
 repository_patch() {
-  local layout="$APP_DIR/views/layout.pug"
-  [[ -f "$layout" ]] || return 0
-
   if [[ -f "$APP_DIR/installer/apply-portal-navigation.py" ]]; then
     python3 "$APP_DIR/installer/apply-portal-navigation.py" "$APP_DIR"
-    return 0
+    return
   fi
 
+  local layout="$APP_DIR/views/layout.pug"
+  [[ -f "$layout" ]] || return 0
   python3 - "$layout" <<'PY'
 from pathlib import Path
 import sys
@@ -46,27 +44,37 @@ PY
 
 [[ "$MODE" == "--repository" ]] && { repository_patch; exit 0; }
 [[ $EUID -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
-[[ -d "$ASSETS_SOURCE" ]] || { echo "Missing imported Assets Viewer at $ASSETS_SOURCE" >&2; exit 1; }
+[[ -d "$ASSETS_DIR" ]] || { echo "Missing integrated Assets module at $ASSETS_DIR" >&2; exit 1; }
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y php-fpm php-cli php-curl php-sqlite3 sqlite3 rsync
+DEBIAN_FRONTEND=noninteractive apt-get install -y php-fpm php-cli php-curl php-sqlite3 sqlite3
 
-install -d -o root -g www-data -m 0750 "$ASSETS_DIR"
-rsync -a --delete --exclude='.git' --exclude='storage/' "$ASSETS_SOURCE/" "$ASSETS_DIR/"
 install -d -o www-data -g www-data -m 0770 "$ASSETS_DATA"
-ln -sfn "$ASSETS_DATA" "$ASSETS_DIR/storage"
+find "$ASSETS_DIR" -type d -exec chmod 0755 {} +
+find "$ASSETS_DIR" -type f -exec chmod 0644 {} +
+chown -R "$APP_USER:$APP_USER" "$ASSETS_DIR"
+chown -R www-data:www-data "$ASSETS_DATA"
+chmod 0770 "$ASSETS_DATA"
+
+if [[ -f "$APP_DIR/.installer.env" ]]; then
+  # shellcheck disable=SC1090
+  source "$APP_DIR/.installer.env"
+fi
 
 if [[ -z "$RPC_USER" || -z "$RPC_PASSWORD" ]]; then
   SETTINGS="$APP_DIR/settings.json"
+  [[ -f "$SETTINGS" ]] || { echo "Missing $SETTINGS" >&2; exit 1; }
   RPC_USER=$(python3 - "$SETTINGS" <<'PY'
-import json,re,sys
-s=open(sys.argv[1]).read(); s=re.sub(r'/\*.*?\*/|//.*','',s,flags=re.S)
+import json, re, sys
+s = open(sys.argv[1], encoding='utf-8').read()
+s = re.sub(r'/\*.*?\*/|//.*', '', s, flags=re.S)
 print(json.loads(s)['wallet']['username'])
 PY
 )
   RPC_PASSWORD=$(python3 - "$SETTINGS" <<'PY'
-import json,re,sys
-s=open(sys.argv[1]).read(); s=re.sub(r'/\*.*?\*/|//.*','',s,flags=re.S)
+import json, re, sys
+s = open(sys.argv[1], encoding='utf-8').read()
+s = re.sub(r'/\*.*?\*/|//.*', '', s, flags=re.S)
 print(json.loads(s)['wallet']['password'])
 PY
 )
@@ -115,15 +123,16 @@ location /assets/ {
 }
 NGINX
 
-NGINX_SITE=$(grep -rl "proxy_pass http://127.0.0.1:300" /etc/nginx/sites-available | head -1 || true)
-if [[ -n "$NGINX_SITE" ]] && ! grep -q 'yerbas-assets-portal.conf' "$NGINX_SITE"; then
+NGINX_SITE="/etc/nginx/sites-available/yerb-multi-explorer"
+if [[ -f "$NGINX_SITE" ]] && ! grep -q 'yerbas-assets-portal.conf' "$NGINX_SITE"; then
   sed -i '/^[[:space:]]*server[[:space:]]*{/a\    include /etc/nginx/snippets/yerbas-assets-portal.conf;' "$NGINX_SITE"
 fi
 
 cat > /etc/systemd/system/yerbas-assets-sync.service <<UNIT
 [Unit]
-Description=Yerbas Portal asset index synchronization
-After=network-online.target
+Description=Yerbas Portal integrated asset index synchronization
+After=network-online.target yerbasd.service
+Requires=yerbasd.service
 
 [Service]
 Type=oneshot
@@ -138,7 +147,7 @@ UNIT
 
 cat > /etc/systemd/system/yerbas-assets-sync.timer <<'UNIT'
 [Unit]
-Description=Synchronize Yerbas Portal assets
+Description=Synchronize integrated Yerbas Portal assets
 
 [Timer]
 OnBootSec=2min
@@ -156,4 +165,4 @@ systemctl start yerbas-assets-sync.service || true
 nginx -t
 systemctl reload nginx
 
-echo "Yerbas Assets Viewer merged and enabled at /assets/"
+echo "Integrated Assets module enabled from $ASSETS_DIR at /assets/"
