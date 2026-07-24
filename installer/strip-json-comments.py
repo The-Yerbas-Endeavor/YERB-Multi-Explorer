@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Convert the explorer's commented JSON template into strict JSON.
+"""Convert the explorer's JSON-with-comments template into strict JSON.
 
-The parser removes // and /* ... */ comments only when they occur outside JSON
-strings, preserving URLs and comment-like text contained in string values.
+The converter removes // and /* ... */ comments only when they occur outside
+JSON strings, preserves URLs and comment-like text inside strings, and removes
+trailing commas before object/array closing tokens.
 """
 
 from __future__ import annotations
@@ -62,6 +63,47 @@ def strip_json_comments(text: str) -> str:
     return "".join(output)
 
 
+def remove_trailing_commas(text: str) -> str:
+    """Remove commas followed only by whitespace and then } or ], outside strings."""
+    output: list[str] = []
+    index = 0
+    in_string = False
+    escaped = False
+
+    while index < len(text):
+        char = text[index]
+
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+
+        if char == ",":
+            lookahead = index + 1
+            while lookahead < len(text) and text[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(text) and text[lookahead] in "}]":
+                index += 1
+                continue
+
+        output.append(char)
+        index += 1
+
+    return "".join(output)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} INPUT OUTPUT", file=sys.stderr)
@@ -69,12 +111,13 @@ def main() -> int:
 
     source = Path(sys.argv[1])
     destination = Path(sys.argv[2])
-    cleaned = strip_json_comments(source.read_text(encoding="utf-8"))
 
     try:
+        cleaned = strip_json_comments(source.read_text(encoding="utf-8"))
+        cleaned = remove_trailing_commas(cleaned)
         parsed = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON after removing comments: {exc}", file=sys.stderr)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Unable to convert settings template to strict JSON: {exc}", file=sys.stderr)
         return 1
 
     destination.write_text(
