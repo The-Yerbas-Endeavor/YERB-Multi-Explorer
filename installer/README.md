@@ -1,32 +1,64 @@
-# Ubuntu 26.04 Installer
+# Official Yerbas Portal Installer
 
-Production installer for YERB Multi-Explorer on Ubuntu 26.04 LTS.
+Production installer for the Yerbas Portal on **Ubuntu 24.04 LTS**.
 
-## Required account model
+It installs and configures the complete portal stack without Docker:
 
-The installer is designed to be launched by a **normal non-root Linux user with sudo privileges**.
-
-Do not sign in as `root`, use `sudo -i`, or run the user-facing launcher with `sudo`. The launcher validates the current account, confirms sudo access, records the invoking user, and elevates only the privileged installation process.
-
-The installer creates separate locked-down service accounts for Yerbas Core and the explorer. Your login account is not used to run either production service.
-
-## What it installs
-
-- Yerbas Core and an optional indexed blockchain bootstrap
-- Node.js 22 and npm
-- PM2 with a systemd startup service
-- Native MongoDB 8 bound to `127.0.0.1`
+- Yerbas Core (`yerbasd` and `yerbas-cli`)
+- latest indexed Yerbas blockchain bootstrap
+- MongoDB 8 with authenticated localhost access
+- Node.js 22 and PM2
+- the latest Yerbas Portal frontend and explorer backend
 - Nginx reverse proxy and API rate limiting
-- Optional Let's Encrypt TLS
+- optional Let's Encrypt HTTPS
 - UFW firewall and unattended security updates
-- Dedicated `yerbas` and `yerbexplorer` service accounts
-- Update, health-check, and uninstall commands
+- systemd services, update command, health check, and uninstall command
 
-**No Docker or container runtime is installed or used.**
+## Required server
 
-## Install
+- Ubuntu 24.04 LTS
+- normal non-root account with sudo access
+- AMD64 or ARM64
+- at least 45 GB free disk space
+- approximately 2 GB RAM minimum; 4 GB or more recommended
+- DNS pointed to the server before requesting HTTPS
 
-Log in with your ordinary sudo-enabled account:
+The installer must be run as your normal sudo-enabled account. Do not use `sudo -i` and do not run the public launcher as root.
+
+## One-command installation
+
+The official portal domain defaults to `explorer2.yerbas.org`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The-Yerbas-Endeavor/YERB-Multi-Explorer/main/installer/install-portal.sh | bash
+```
+
+The script asks only for the account's sudo password. It automatically generates secure Yerbas RPC and MongoDB credentials, downloads the current source, loads the blockchain bootstrap, configures services, requests HTTPS, and performs final health checks.
+
+### Use another domain
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The-Yerbas-Endeavor/YERB-Multi-Explorer/main/installer/install-portal.sh \
+  | DOMAIN=portal.yerbas.org bash
+```
+
+### Install without HTTPS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The-Yerbas-Endeavor/YERB-Multi-Explorer/main/installer/install-portal.sh \
+  | ENABLE_SSL=no bash
+```
+
+### Skip the blockchain bootstrap
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The-Yerbas-Endeavor/YERB-Multi-Explorer/main/installer/install-portal.sh \
+  | INSTALL_BOOTSTRAP=no bash
+```
+
+## Manual interactive installation
+
+For advanced installations where credentials and options should be entered manually:
 
 ```bash
 git clone https://github.com/The-Yerbas-Endeavor/YERB-Multi-Explorer.git
@@ -35,142 +67,59 @@ chmod +x installer/install-sudo-user.sh
 bash installer/install-sudo-user.sh
 ```
 
-Do **not** use either of these forms:
+## What the automatic installer does
 
-```bash
-sudo bash installer/install-sudo-user.sh
-sudo -i
-```
-
-The launcher will ask for your sudo password when privileged work begins.
-
-It also converts the repository's commented `settings.json.template` into strict JSON before `jq` applies the generated MongoDB and Yerbas RPC credentials. No manual `npx json5` conversion is required.
-
-To install another branch:
-
-```bash
-BRANCH=feature/modern-dashboard bash installer/install-sudo-user.sh
-```
-
-For an unattended bootstrap choice:
-
-```bash
-INSTALL_BOOTSTRAP=yes KEEP_BOOTSTRAP_ARCHIVE=no bash installer/install-sudo-user.sh
-```
-
-To skip the bootstrap:
-
-```bash
-INSTALL_BOOTSTRAP=no bash installer/install-sudo-user.sh
-```
-
-## Security and ownership
-
-The invoking sudo user is recorded as `INSTALLER_USER` for logging and future ownership-sensitive operations. Production files remain owned by their dedicated service accounts:
-
-- Yerbas Core service: `yerbas`
-- Explorer and PM2 service: `yerbexplorer`
-- MongoDB service: `mongodb`
-- Nginx service: `www-data`
-
-Secrets are not placed in the invoking user's home directory.
-
-## MongoDB on Ubuntu 26.04
-
-MongoDB 8 currently publishes native Ubuntu packages for Ubuntu 24.04 (`noble`). The installer uses that official native repository on Ubuntu 26.04 and runs MongoDB directly as the `mongod` systemd service. MongoDB listens only on localhost and uses a generated authenticated database user.
-
-Verify it with:
-
-```bash
-sudo systemctl status mongod --no-pager
-sudo mongosh --quiet --eval 'db.runCommand({ ping: 1 })'
-```
-
-## Configuration
-
-The explorer is installed at:
-
-```text
-/opt/yerb-multi-explorer
-```
-
-The launcher converts `settings.json.template` to strict JSON, and the privileged installer writes the generated MongoDB and Yerbas RPC values to:
-
-```text
-/opt/yerb-multi-explorer/settings.json
-```
-
-The final file is owned by `yerbexplorer` with mode `0600`.
-
-Generated installer credentials are also stored with service-user-only permissions in:
-
-```text
-/opt/yerb-multi-explorer/.installer.env
-/etc/yerbas/explorer.env
-```
+1. Verifies Ubuntu 24.04, architecture, kernel compatibility, memory, disk space, required commands, and sudo access.
+2. Downloads the selected repository branch into `/var/tmp/yerbas-portal-installer`.
+3. Generates 256-bit URL-safe RPC and MongoDB passwords.
+4. Installs Yerbas Core and creates the locked-down `yerbas` service account.
+5. Downloads and verifies the latest explorer bootstrap-index release.
+6. Installs MongoDB 8, creates the authenticated explorer database user, and binds MongoDB to localhost.
+7. Installs Node.js 22 and PM2.
+8. clones the Portal into `/opt/yerb-multi-explorer`, installs locked dependencies, and generates `settings.json`.
+9. Creates the `yerbexplorer` service account and PM2 systemd unit.
+10. Configures Nginx, UFW, unattended upgrades, and optional Let's Encrypt HTTPS.
+11. Installs administrative commands and verifies Core, MongoDB, PM2, Nginx, and HTTP health.
 
 ## Operations
-
-Run administrative commands from your normal account with `sudo`:
 
 ```bash
 sudo yerb-explorer-health
 sudo yerb-explorer-update
 sudo yerb-explorer-uninstall
+sudo systemctl status yerbasd --no-pager
+sudo systemctl status pm2-yerbexplorer --no-pager
 ```
 
-View application logs:
+Portal logs:
 
 ```bash
 sudo -u yerbexplorer env HOME=/home/yerbexplorer PM2_HOME=/home/yerbexplorer/.pm2 \
   pm2 logs yerb-multi-explorer
 ```
 
-Restart the explorer:
+Core synchronization status:
 
 ```bash
-sudo systemctl restart pm2-yerbexplorer
-```
-
-Check Yerbas Core:
-
-```bash
-sudo systemctl status yerbasd --no-pager
 sudo -u yerbas yerbas-cli \
   -conf=/var/lib/yerbas/.yerbas/yerbas.conf \
   -datadir=/var/lib/yerbas/.yerbas \
   getblockchaininfo
 ```
 
-Run initial indexing when needed:
-
-```bash
-cd /opt/yerb-multi-explorer
-sudo -u yerbexplorer npm run sync-blocks
-sudo -u yerbexplorer npm run sync-peers
-sudo -u yerbexplorer npm run sync-masternodes
-sudo -u yerbexplorer npm run sync-markets
-```
-
-## Paths
+## Important paths
 
 | Purpose | Path |
 |---|---|
-| Explorer | `/opt/yerb-multi-explorer` |
-| Yerbas data | `/var/lib/yerbas/.yerbas` |
-| Yerbas environment | `/etc/yerbas/explorer.env` |
-| Nginx site | `/etc/nginx/sites-available/yerb-multi-explorer` |
+| Portal application | `/opt/yerb-multi-explorer` |
+| Yerbas blockchain data | `/var/lib/yerbas/.yerbas` |
+| Yerbas RPC environment | `/etc/yerbas/explorer.env` |
+| Portal environment | `/opt/yerb-multi-explorer/.installer.env` |
+| Nginx configuration | `/etc/nginx/sites-available/yerb-multi-explorer` |
 | Installer log | `/var/log/yerb-multi-explorer-install.log` |
 | PM2 state | `/home/yerbexplorer/.pm2` |
 | MongoDB data | `/var/lib/mongodb` |
-| MongoDB configuration | `/etc/mongod.conf` |
 | Bootstrap cache | `/var/cache/yerbas-bootstrap` |
 | Update backups | `/var/backups/yerb-multi-explorer` |
 
-## Notes
-
-- Always launch installation from a normal sudo-enabled account.
-- The launcher refuses direct root execution.
-- The privileged installer still runs as root internally because package installation, systemd, Nginx, UFW, and `/opt` changes require it.
-- The installer applies the Express-compatible regular-expression wildcard route when it finds the legacy `app.get('*', ...)` form.
-- The npm major-version notice can be ignored; the application is installed using the Node.js 22 toolchain selected by the installer.
+Credentials are stored only in root/service-account-readable files. The browser is never given Yerbas RPC credentials, MongoDB credentials, private keys, seed phrases, or `wallet.dat` access.
