@@ -15,13 +15,32 @@ MODE="${1:-deploy}"
 repository_patch() {
   local layout="$APP_DIR/views/layout.pug"
   [[ -f "$layout" ]] || return 0
+
+  if [[ -f "$APP_DIR/installer/apply-portal-navigation.py" ]]; then
+    python3 "$APP_DIR/installer/apply-portal-navigation.py" "$APP_DIR"
+    return 0
+  fi
+
   python3 - "$layout" <<'PY'
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]); s=p.read_text()
-s=s.replace("a.nav-link.portal-assets-link(href='https://assetsviewer.yerbas.org/'", "a.nav-link.portal-assets-link(href='/assets/'")
-s=s.replace("a.nav-link.portal-assets-link(href='https://assetsviewer.yerbas.org'", "a.nav-link.portal-assets-link(href='/assets/'")
-p.write_text(s)
+
+p = Path(sys.argv[1])
+s = p.read_text(encoding='utf-8')
+s = s.replace("href='https://assetsviewer.yerbas.org/'", "href='/assets/'")
+s = s.replace("href='https://assetsviewer.yerbas.org'", "href='/assets/'")
+
+if "li#assets.nav-item" not in s:
+    block = """              li#assets.nav-item
+                a.nav-link.portal-assets-link(href='/assets/', title='Browse Yerbas Assets')
+                  span.fas.fa-layer-group
+                  span.margin-left-5 Assets
+"""
+    anchor = "              if settings.markets_page.enabled == true\n"
+    if anchor in s:
+        s = s.replace(anchor, block + anchor, 1)
+
+p.write_text(s, encoding='utf-8')
 PY
 }
 
