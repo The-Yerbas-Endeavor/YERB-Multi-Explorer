@@ -18,8 +18,12 @@ if stylesheet not in text:
 
 text = text.replace('div.navbar.navbar-expand-lg(', 'div.navbar.navbar-expand-xl(', 1)
 
+# Convert any older external Assets Viewer navigation entry to the integrated route.
+text = text.replace("href='https://assetsviewer.yerbas.org/'", "href='/assets/'")
+text = text.replace("href='https://assetsviewer.yerbas.org'", "href='/assets/'")
+
 assets_block = """              li#assets.nav-item
-                a.nav-link(href='https://assetsviewer.yerbas.org/', title='Browse Yerbas Assets')
+                a.nav-link.portal-assets-link(href='/assets/', title='Browse Yerbas Assets')
                   span.fas.fa-layer-group
                   span.margin-left-5 Assets
 """
@@ -30,4 +34,4 @@ if "li#assets.nav-item" not in text:
     text = text.replace(markets_anchor, assets_block + markets_anchor, 1)
 
 layout.write_text(text, encoding='utf-8')
-print(f'Updated {layout}')
+print(f'Updated {layout}: Assets now points to /assets/')
