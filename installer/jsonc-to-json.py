@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 def strip_comments(source: str) -> str:
+    """Remove // and /* */ comments while preserving quoted strings."""
     output: list[str] = []
     index = 0
     in_string = False
@@ -60,6 +61,47 @@ def strip_comments(source: str) -> str:
     return "".join(output)
 
 
+def strip_trailing_commas(source: str) -> str:
+    """Remove commas immediately before } or ] outside quoted strings."""
+    output: list[str] = []
+    index = 0
+    in_string = False
+    escaped = False
+
+    while index < len(source):
+        char = source[index]
+
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+
+        if char == ",":
+            lookahead = index + 1
+            while lookahead < len(source) and source[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(source) and source[lookahead] in "}]":
+                index += 1
+                continue
+
+        output.append(char)
+        index += 1
+
+    return "".join(output)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} INPUT OUTPUT", file=sys.stderr)
@@ -70,7 +112,8 @@ def main() -> int:
 
     try:
         raw = input_path.read_text(encoding="utf-8")
-        parsed = json.loads(strip_comments(raw))
+        normalized = strip_trailing_commas(strip_comments(raw))
+        parsed = json.loads(normalized)
         output_path.write_text(
             json.dumps(parsed, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
