@@ -21,6 +21,10 @@ if [[ -f "$APP_DIR/installer/apply-yerbas-branding.sh" ]]; then
   chmod 0755 "$APP_DIR/installer/apply-yerbas-branding.sh"
   APP_DIR="$APP_DIR" APP_USER="$APP_USER" bash "$APP_DIR/installer/apply-yerbas-branding.sh"
 fi
+if [[ -f "$APP_DIR/installer/apply-portal-navigation.py" ]]; then
+  chmod 0755 "$APP_DIR/installer/apply-portal-navigation.py"
+  python3 "$APP_DIR/installer/apply-portal-navigation.py" "$APP_DIR"
+fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="/home/$APP_USER/.pm2" pm2 reload "$APP_NAME" --update-env
 sudo -u "$APP_USER" env HOME="/home/$APP_USER" PM2_HOME="/home/$APP_USER/.pm2" pm2 save
