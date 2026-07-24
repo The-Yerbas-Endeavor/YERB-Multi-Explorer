@@ -100,6 +100,12 @@ chown root:www-data "$ASSETS_DIR/config.php"
 chmod 0640 "$ASSETS_DIR/config.php"
 chmod +x "$ASSETS_DIR"/scripts/*.sh "$ASSETS_DIR"/scripts/*.php 2>/dev/null || true
 
+# config.php is generated from the explorer's shared RPC settings. Keep it in the
+# module path while preventing local secrets from blocking future git pulls.
+if [[ -d "$APP_DIR/.git" ]]; then
+  sudo -u "$APP_USER" git -C "$APP_DIR" update-index --skip-worktree modules/assets-viewer/config.php 2>/dev/null || true
+fi
+
 PHP_SOCK=$(find /run/php -maxdepth 1 -name 'php*-fpm.sock' | sort -V | tail -1)
 [[ -n "$PHP_SOCK" ]] || { echo "PHP-FPM socket not found" >&2; exit 1; }
 
