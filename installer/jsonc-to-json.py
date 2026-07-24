@@ -102,6 +102,31 @@ def strip_trailing_commas(source: str) -> str:
     return "".join(output)
 
 
+def remove_xeggex(value):
+    """Remove Xeggex keys and replace Xeggex string values with Nestex."""
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            if str(key).lower() == "xeggex":
+                continue
+            cleaned[key] = remove_xeggex(item)
+        return cleaned
+    if isinstance(value, list):
+        return [remove_xeggex(item) for item in value]
+    if isinstance(value, str) and value.lower() == "xeggex":
+        return "nestex"
+    return value
+
+
+def force_nestex_default(settings: dict) -> None:
+    markets = settings.get("markets_page")
+    if isinstance(markets, dict):
+        default_exchange = markets.setdefault("default_exchange", {})
+        if isinstance(default_exchange, dict):
+            default_exchange["exchange_name"] = "nestex"
+            default_exchange["trading_pair"] = "YERB/USDT"
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} INPUT OUTPUT", file=sys.stderr)
@@ -113,7 +138,9 @@ def main() -> int:
     try:
         raw = input_path.read_text(encoding="utf-8")
         normalized = strip_trailing_commas(strip_comments(raw))
-        parsed = json.loads(normalized)
+        parsed = remove_xeggex(json.loads(normalized))
+        if isinstance(parsed, dict):
+            force_nestex_default(parsed)
         output_path.write_text(
             json.dumps(parsed, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
