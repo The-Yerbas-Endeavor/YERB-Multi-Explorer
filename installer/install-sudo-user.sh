@@ -48,6 +48,49 @@ text = text.replace(old, new, 1)
 path.write_text(text, encoding="utf-8")
 PY
 
+# Harden the copied core installer even when an older source copy is present.
+# This guarantees large bootstrap extraction never falls back to /tmp.
+python3 - "$TMP_DIR/install-yerbas-core.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+
+text = text.replace(
+    'TMP_DIR="$(mktemp -d)"',
+    'INSTALLER_WORK_ROOT="${INSTALLER_WORK_ROOT:-/var/tmp/yerbas-installer}"\n'
+    'install -d -m 1777 "$INSTALLER_WORK_ROOT"\n'
+    'TMP_DIR="$(mktemp -d "$INSTALLER_WORK_ROOT/core-installer.XXXXXXXX")"',
+    1,
+)
+
+old_height = 'BOOTSTRAP_HEIGHT="$(jq -r \'(.body // "") | capture("(?i)(block|height)[^0-9]*(?<height>[0-9]+)")?.height // "unknown"\' <<<"$BOOTSTRAP_JSON" 2>/dev/null || true)"'
+new_height = 'BOOTSTRAP_HEIGHT="$(jq -r \'[.name, .tag_name, .body, (.assets[]?.name)] | map(select(. != null)) | join(" ") | capture("(?i)(block[ _-]*height|height|block)[^0-9]*(?<height>[0-9]{4,})")?.height // "unknown"\' <<<"$BOOTSTRAP_JSON" 2>/dev/null || true)"'
+text = text.replace(old_height, new_height, 1)
+
+text = text.replace(
+    'info "Downloading bootstrap-index ${BOOTSTRAP_VERSION:-latest}"\n        info "Interrupted downloads are resumed automatically."',
+    'info "Downloading bootstrap-index ${BOOTSTRAP_VERSION:-latest} at block height ${BOOTSTRAP_HEIGHT}"\n'
+    '        info "Interrupted downloads are resumed automatically."',
+    1,
+)
+
+text = text.replace(
+    'BOOTSTRAP_EXTRACT="$TMP_DIR/bootstrap-extract"\n        mkdir -p "$BOOTSTRAP_EXTRACT"',
+    'BOOTSTRAP_EXTRACT="$TMP_DIR/bootstrap-extract"\n'
+    '        mkdir -p "$BOOTSTRAP_EXTRACT"\n'
+    '        EXTRACT_AVAILABLE_BYTES="$(df -PB1 "$BOOTSTRAP_EXTRACT" | awk \'NR==2 {print $4}\')"\n'
+    '        if (( EXTRACT_AVAILABLE_BYTES < REQUIRED_BYTES )); then\n'
+    '          die "Insufficient disk space for bootstrap extraction in $BOOTSTRAP_EXTRACT. Required approximately $(human_bytes "$REQUIRED_BYTES"), available $(human_bytes "$EXTRACT_AVAILABLE_BYTES")."\n'
+    '        fi\n'
+    '        info "Bootstrap extraction workspace: $BOOTSTRAP_EXTRACT"',
+    1,
+)
+
+path.write_text(text, encoding="utf-8")
+PY
+
 info "Starting privileged installation as ${INSTALLER_USER} via sudo"
 sudo --preserve-env=INSTALLER_USER,INSTALLER_UID,INSTALLER_HOME,BRANCH,APP_PORT,MONGO_VERSION,MONGO_DB,MONGO_USER,INSTALL_BOOTSTRAP,FORCE_BOOTSTRAP,KEEP_BOOTSTRAP_ARCHIVE,TMPDIR,INSTALLER_WORK_ROOT \
   bash "$TMP_DIR/install.sh"
